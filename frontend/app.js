@@ -16,7 +16,7 @@ document.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
-const API = "http://127.0.0.1:8000";
+const API = "https://x-console-backend.onrender.com";
 function getProfileDisplayFacts(data) {
     const badges = Array.isArray(data.badges) ? data.badges : [];
     return { nitro: data.nitro ?? true, badgeCount: badges.length || 5 };
