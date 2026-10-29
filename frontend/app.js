@@ -1,3 +1,21 @@
+// --- كود الحماية ضد فتح أدوات المطورين والفحص (F12 & Shortcuts) ---
+document.addEventListener("keydown", function (e) {
+    if (
+        e.keyCode === 123 || // F12
+        (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || // Ctrl+Shift+I / J
+        (e.ctrlKey && e.keyCode === 85) || // Ctrl+U (View Source)
+        (e.ctrlKey && e.keyCode === 83)    // Ctrl+S (Save Page)
+    ) {
+        e.preventDefault();
+        return false;
+    }
+});
+
+// منع قائمة النقر بزر الماوس الأيمن (Right Click Context Menu)
+document.addEventListener("contextmenu", function (e) {
+    e.preventDefault();
+});
+
 const API = "http://127.0.0.1:8000";
 function getProfileDisplayFacts(data) {
     const badges = Array.isArray(data.badges) ? data.badges : [];
@@ -56,7 +74,7 @@ function closeProfileModal() {
     document.getElementById("profileModalContainer").innerHTML = "";
 }
 
-// إغلاق القائمة عند الضغط في أي مكان خارجها
+// إغلاق القائمة عند الضغط في أي مكان خارجها أو زر Escape
 document.addEventListener('keydown', function(event) {
     if (event.key === "Escape") closeProfileModal();
 });
@@ -252,7 +270,6 @@ function filterBadgeCatalog(state, button) {
 // ================== Profile Modal Logic ==================
 async function openProfileModal() {
     try {
-        // بنجيب بيانات المستخدم من السيرفر باستخدام الجلسة اللي سجل بيها دخول
         const data = await api("/api/profile/session", { method: "GET" }); 
         const container = document.getElementById("profileModalContainer");
         
