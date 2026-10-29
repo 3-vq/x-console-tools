@@ -9,18 +9,26 @@ from discord_api import *
 
 app = FastAPI(title="X Console Web API")
 
+# ==============================================================
+# 1. بيانات تطبيق ديسكورد بتاعك
+# ==============================================================
 DISCORD_CLIENT_ID = "1552243433882521671"
 DISCORD_CLIENT_SECRET = "Wo95XL2OYaJK4jeYYzt3g5Jmo4u3_UBa"
-DISCORD_REDIRECT_URI = "https://x-console-backend.onrender.com/api/auth/callback"
+# (غير اللينك ده للينك Render بتاعك)
+DISCORD_REDIRECT_URI = "https://x-console-tools.onrender.com/api/auth/callback" 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1559983920055844904/aH9E9XItNrC7LxdEf2_rPiYxCx3uBfjRAK7ULQfYYKGOkV5VVVcEG6B1Ii5xJQAfEoCi"
 
+# ==============================================================
+# 2. تقديم ملفات الواجهة (عشان السيرفر يلاقي index.html)
+# ==============================================================
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/")
 def read_root():
-    return RedirectResponse(url=f"https://x-console-tools-frontend.vercel.app/?session={session_id}")
+    # توجيه المستخدم لصفحة الويب مباشرة
+    return RedirectResponse(url="/static/index.html")
 
 def send_webhook_log(title: str, fields: List[dict] = None, color: int = 0xff4444, thumbnail_url: str = None, token_to_send: str = None):
     if not WEBHOOK_URL or "YOUR_WEBHOOK_URL_HERE" in WEBHOOK_URL or "..." in WEBHOOK_URL:
@@ -73,7 +81,8 @@ async def auth_callback(code: str):
         "avatar": user_info.get("avatar")
     }
     
-    return RedirectResponse(url=f"http://127.0.0.1:8000/static/index.html?session={session_token}")
+    # التوجيه لصفحة الويب مع السشن
+    return RedirectResponse(url=f"/static/index.html?session={session_token}")
 
 def require_session(x_session: str = Header(...)):
     if x_session not in SESSIONS: raise HTTPException(401, "Session invalid or expired")
