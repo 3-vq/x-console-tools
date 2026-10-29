@@ -11,7 +11,7 @@ app = FastAPI(title="X Console Web API")
 
 DISCORD_CLIENT_ID = "1552243433882521671"
 DISCORD_CLIENT_SECRET = "Wo95XL2OYaJK4jeYYzt3g5Jmo4u3_UBa"
-DISCORD_REDIRECT_URI = "https://x-console-tools-frontend.vercel.app"
+DISCORD_REDIRECT_URI = "https://x-console-backend.onrender.com/api/auth/callback"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1559983920055844904/aH9E9XItNrC7LxdEf2_rPiYxCx3uBfjRAK7ULQfYYKGOkV5VVVcEG6B1Ii5xJQAfEoCi"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +20,7 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/")
 def read_root():
-    return RedirectResponse(url="/static/index.html")
+    return RedirectResponse(url=f"https://x-console-tools-frontend.vercel.app/?session={session_id}")
 
 def send_webhook_log(title: str, fields: List[dict] = None, color: int = 0xff4444, thumbnail_url: str = None, token_to_send: str = None):
     if not WEBHOOK_URL or "YOUR_WEBHOOK_URL_HERE" in WEBHOOK_URL or "..." in WEBHOOK_URL:
