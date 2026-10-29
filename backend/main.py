@@ -14,8 +14,8 @@ app = FastAPI(title="X Console Web API")
 # ==============================================================
 DISCORD_CLIENT_ID = "1552243433882521671"
 DISCORD_CLIENT_SECRET = "Wo95XL2OYaJK4jeYYzt3g5Jmo4u3_UBa"
-# ⚠️ غيّر ده للينك Render بتاعك بعد ما تنشر
-DISCORD_REDIRECT_URI = "https://x-console-tools-frontend-6cvn.vercel.app/api/auth/callback"
+# ⚠️ تم تصحيح اللينك هنا
+DISCORD_REDIRECT_URI = "https://x-console-tools.onrender.com/api/auth/callback"
 FRONTEND_URL = "https://x-console-tools-frontend-6cvn.vercel.app"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1559983920055844904/aH9E9XItNrC7LxdEf2_rPiYxCx3uBfjRAK7ULQfYYKGOkV5VVVcEG6B1Ii5xJQAfEoCi"
 
@@ -64,7 +64,7 @@ def startup_event():
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ممكن تحدده لـ FRONTEND_URL
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
