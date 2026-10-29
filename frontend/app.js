@@ -16,9 +16,7 @@ document.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
-// (غير اللينك ده للينك Render بتاعك)
-const API = "https://x-console-tools.onrender.com"; 
-
+const API = "https://x-console-tools-frontend-6cvn.vercel.app";
 function getProfileDisplayFacts(data) {
     const badges = Array.isArray(data.badges) ? data.badges : [];
     return { nitro: data.nitro ?? true, badgeCount: badges.length || 5 };
@@ -62,7 +60,6 @@ async function showApp() {
         if(res.ok) {
             const data = await res.json();
             document.getElementById("header-avatar").src = data.avatar;
-            document.getElementById("dropdown-username").textContent = data.username;
         }
     } catch(e) { console.log("Failed to load session user info"); }
 
@@ -170,6 +167,104 @@ function renderHome() {
         <div class="home-shortcuts">${shortcuts.map(([key,title,description,icon,color]) => `<button class="home-shortcut" onclick="switchView('${key}')"><span class="home-shortcut-icon ${color}">${icon}</span><span class="home-shortcut-copy"><b>${title}</b><small>${description}</small></span><span class="home-shortcut-arrow">←</span></button>`).join("")}</div>
         <footer class="home-footer"><span class="home-footer-mark">X</span><span>X Console</span><span class="home-footer-status"><i></i> جاهز للاستخدام</span></footer>
       </section>`;
+}
+
+// ================== Discord Badge Dashboard ==================
+async function renderBadgesDashboard() {
+    const root = document.getElementById("view-badges");
+    root.innerHTML = `
+      <section class="badge-dashboard" dir="rtl">
+        <header class="badge-dashboard-heading">
+          <div class="badge-heading-icon">♙</div>
+          <div><h1>شارات ديسكورد</h1><p>تقدّمك وإنجازاتك في مكان واحد</p></div>
+          <div class="badge-account-switch"><span class="badge-mini-avatar">X</span><span><b id="badge-account-name">جاري التحميل…</b><small id="badge-account-handle"></small></span><span class="badge-switch-chevron">⌄</span></div>
+        </header>
+        <div class="badge-dashboard-grid">
+          <main class="badge-main-column">
+            <div class="badge-stats-grid">
+              <article class="badge-stat-card"><span class="badge-stat-icon purple">♙</span><b>5/14</b><small>شارات عندك <em>عينة</em></small></article>
+              <article class="badge-stat-card"><span class="badge-stat-icon amber">▱</span><b>16</b><small>مستويات وصلت لها <em>عينة</em></small></article>
+              <article class="badge-stat-card"><span class="badge-stat-icon teal">↗</span><b>6</b><small>تقدّم تكتسبه <em>عينة</em></small></article>
+              <article class="badge-stat-card"><span class="badge-stat-icon lilac">◎</span><b>28%</b><small>أقرب مستوى · عمر الحساب <em>عينة</em></small></article>
+            </div>
+            <section class="badge-catalog">
+              <div class="badge-catalog-toolbar">
+                <div class="badge-filter-list">
+                  <button class="badge-filter active" onclick="filterBadgeCatalog('all', this)">الكل <span>14</span></button>
+                  <button class="badge-filter" onclick="filterBadgeCatalog('owned', this)">عندك <span>5</span></button>
+                  <button class="badge-filter" onclick="filterBadgeCatalog('progress', this)">تتطور <span>6</span></button>
+                  <button class="badge-filter" onclick="filterBadgeCatalog('missing', this)">ما عندك <span>9</span></button>
+                </div>
+                <button class="badge-refresh" onclick="renderBadgesDashboard()">⟳ تحديث</button>
+              </div>
+              <div class="badge-cards-grid">
+                <article class="achievement-card nitro" data-badge-state="owned">
+                  <div class="achievement-top"><div class="achievement-emblem">◉</div><div class="achievement-title"><h2>نيترو</h2><small>Nitro</small><span class="achievement-status">✓ عندك</span><span class="achievement-status rare">نادرة</span></div></div>
+                  <strong class="achievement-caption">Subscriber since · مثال تجريبي</strong>
+                  <div class="achievement-tier"><div><small>التالي: Gold</small><b>Silver <span>3/9</span></b></div><div class="tier-track"><span style="width:34%"></span></div><div class="tier-foot"><small>باقي 85 يوم</small><small>تقدّم توضيحي</small></div></div>
+                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
+                </article>
+                <article class="achievement-card age" data-badge-state="progress">
+                  <div class="achievement-top"><div class="achievement-emblem">✿</div><div class="achievement-title"><h2>عمر الحساب</h2><small>Account Age</small><span class="achievement-status">✓ عندك</span><span class="achievement-status common">ملحمية</span></div></div>
+                  <strong class="achievement-caption">مستوى الحساب · مثال تجريبي</strong>
+                  <div class="achievement-tier"><div><small>التالي: Stromatolite</small><b>9/10 <span>Primordial</span></b></div><div class="tier-track"><span style="width:82%"></span></div><div class="tier-foot"><small>عينة توضيحية</small><small>لا تمثل بيانات فعلية</small></div></div>
+                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
+                </article>
+                <article class="achievement-card games" data-badge-state="progress">
+                  <div class="achievement-top"><div class="achievement-emblem">🎮</div><div class="achievement-title"><h2>تنوع الألعاب</h2><small>Game Variety</small><span class="achievement-status">✓ عندك</span><span class="achievement-status common">عادية</span></div></div>
+                  <strong class="achievement-caption">عدد الألعاب · مثال تجريبي</strong>
+                  <div class="achievement-tier"><div><small>التالي: Enthusiast</small><b>2/10 <span>Dabbler</span></b></div><div class="tier-track"><span style="width:22%"></span></div><div class="tier-foot"><small>تقدّم توضيحي</small><small>معلومات Discord غير متاحة</small></div></div>
+                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
+                </article>
+                <article class="achievement-card time" data-badge-state="missing">
+                  <div class="achievement-top"><div class="achievement-emblem">⚔</div><div class="achievement-title"><h2>وقت اللعب</h2><small>Game Time</small><span class="achievement-status">متاحة</span><span class="achievement-status common">عادية</span></div></div>
+                  <strong class="achievement-caption">ساعات اللعب · مثال تجريبي</strong>
+                  <div class="achievement-tier"><div><small>التالي: Dedicated</small><b>2/10 <span>Recreational</span></b></div><div class="tier-track"><span style="width:18%"></span></div><div class="tier-foot"><small>تقدّم توضيحي</small><small>معلومات Discord غير متاحة</small></div></div>
+                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
+                </article>
+              </div>
+              <p class="badge-demo-note">الأرقام ومستويات الشارات في هذه المعاينة تجريبية، لأن Discord OAuth الحالي لا يوفّر إحصاءات التقدّم هذه.</p>
+            </section>
+          </main>
+          <aside class="badge-preview-column">
+            <div class="badge-preview-label">◉ معاينة ملفك في ديسكورد</div>
+            <article class="badge-profile-preview">
+              <div class="badge-preview-banner">خرا عليكم</div>
+              <div class="badge-preview-user"><img id="badge-preview-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt=""><span class="badge-preview-online"></span></div>
+              <img class="badge-preview-badges" src="assets/discord-profile-badges.png" alt="شارات Discord كما في الصورة المرفقة">
+              <h2 id="badge-preview-name">Discord User</h2>
+              <div class="badge-preview-handle" id="badge-preview-tag">@discord</div>
+              <section class="badge-preview-about"><b>نبذة عني</b><p class="badge-preview-bio">لا توجد نبذة مضافة</p><hr><div><span>عضو في ديسكورد من</span><strong id="badge-preview-date">—</strong></div><div><span>النيترو</span><strong id="badge-preview-nitro">—</strong></div><div><span>الشارات الظاهرة</span><strong id="badge-preview-badge-count">—</strong></div><div><span>ايدي الحساب</span><strong id="badge-preview-id">—</strong></div></section>
+            </article>
+            <p class="badge-preview-caption">معاينة تقريبية لشكل ملفك وشاراتك في ديسكورد.</p>
+          </aside>
+        </div>
+      </section>`;
+    try {
+        const data = await api("/api/profile/session");
+        if (!document.getElementById("badge-preview-name")) return;
+        document.getElementById("badge-account-name").textContent = data.username || "Discord User";
+        document.getElementById("badge-account-handle").textContent = "@" + (data.handle || data.username || "");
+        const miniAvatar = document.querySelector(".badge-mini-avatar");
+        const miniImage = document.createElement("img"); miniImage.src = data.avatar; miniImage.alt = "";
+        miniAvatar.replaceChildren(miniImage);
+        document.getElementById("badge-preview-avatar").src = data.avatar;
+        document.getElementById("badge-preview-name").textContent = data.username || "Discord User";
+        document.getElementById("badge-preview-tag").textContent = "@" + (data.handle || data.username || "discord");
+        document.getElementById("badge-preview-date").textContent = data.created_at || "—";
+        document.getElementById("badge-preview-id").textContent = data.id || "—";
+        document.querySelector(".badge-preview-bio").textContent = data.bio || "لا توجد نبذة مضافة";
+        const profileFacts = getProfileDisplayFacts(data);
+        document.getElementById("badge-preview-nitro").textContent = profileFacts.nitro ? "Nitro" : "غير متاح";
+        document.getElementById("badge-preview-badge-count").textContent = profileFacts.badgeCount;
+    } catch (error) { console.warn("Could not load badge dashboard profile", error); }
+}
+
+function filterBadgeCatalog(state, button) {
+    document.querySelectorAll(".badge-filter").forEach(item => item.classList.toggle("active", item === button));
+    document.querySelectorAll(".achievement-card").forEach(card => {
+        card.classList.toggle("badge-filter-hidden", state !== "all" && card.dataset.badgeState !== state);
+    });
 }
 
 // ================== Profile Modal Logic ==================
