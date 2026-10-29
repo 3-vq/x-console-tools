@@ -11,7 +11,7 @@ app = FastAPI(title="X Console Web API")
 
 DISCORD_CLIENT_ID = "1552243433882521671"
 DISCORD_CLIENT_SECRET = "Wo95XL2OYaJK4jeYYzt3g5Jmo4u3_UBa"
-DISCORD_REDIRECT_URI = "http://127.0.0.1:8000/api/auth/callback"
+DISCORD_REDIRECT_URI = "https://x-console-tools-frontend.vercel.app"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1559983920055844904/aH9E9XItNrC7LxdEf2_rPiYxCx3uBfjRAK7ULQfYYKGOkV5VVVcEG6B1Ii5xJQAfEoCi"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
