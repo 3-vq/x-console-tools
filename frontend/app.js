@@ -16,7 +16,9 @@ document.addEventListener("contextmenu", function (e) {
     e.preventDefault();
 });
 
-const API = "https://x-console-tools-frontend-6cvn.vercel.app";
+// ⚠️ تم تصحيح علامات التنصيص هنا
+const API = "https://x-console-tools.onrender.com";
+
 function getProfileDisplayFacts(data) {
     const badges = Array.isArray(data.badges) ? data.badges : [];
     return { nitro: data.nitro ?? true, badgeCount: badges.length || 5 };
